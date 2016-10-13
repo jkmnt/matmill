@@ -8,7 +8,7 @@ using CamBam.CAD;
 using CamBam.Geom;
 
 namespace Matmill
-{ 
+{
     public class Host
     {
         static public void log(string s, params object[] args)
@@ -51,8 +51,8 @@ namespace Matmill
                         if (ret == null) return;
                         double sample_distance = Math.Abs((double)ret);
             */
-            //double sample_distance = max_engagement / 10.0;
-            double sample_distance = cutter_d / 10.0;
+            double sample_distance = max_engagement / 10.0;
+            //double sample_distance = cutter_d / 10.0;
 
             Host.log("hello");
 
@@ -78,6 +78,12 @@ namespace Matmill
 
             CamBam.CAD.Region reg = regs[0];
 
+            CamBamUI.MainUI.ActiveView.SuspendRefresh();
+            CamBamUI.MainUI.ActiveView.CADFile.Modified = true;
+            CamBamUI.MainUI.UndoBuffer.AddUndoPoint("matmill");
+            CamBamUI.MainUI.ActiveView.CADFile.EnsureActiveLayer(true);
+            CamBamUI.MainUI.UndoBuffer.Add(CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities);
+
             Pocket_generator gen = new Pocket_generator(reg);
             gen.cutter_d = cutter_d;
             gen.max_engagement = max_engagement;
@@ -86,7 +92,6 @@ namespace Matmill
 
             Host.log("path generated");
 
-            CamBamUI.MainUI.ActiveView.SuspendRefresh();
 
             foreach (Entity e in path)
             {
@@ -94,9 +99,10 @@ namespace Matmill
             }
 
             CamBamUI.MainUI.ActiveView.ResumeRefresh();
+            CamBamUI.MainUI.ActiveView.UpdateViewport();
 
             Host.log("done");
-        }        
+        }
 
         public static void InitPlugin(CamBamUI ui)
         {

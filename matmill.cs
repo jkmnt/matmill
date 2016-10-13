@@ -111,7 +111,7 @@ namespace Matmill
             public Polyline Curve = null;
             public Branch Parent = null;
             public List<Branch> Children = new List<Branch>();
-            public bool End_is_leaf = true;
+            public bool Has_followers = false;
             public List<Slice> Slices = new List<Slice>();
 
             public List<Branch> Df_traverse()  //
@@ -222,12 +222,12 @@ namespace Matmill
                     followers.Add(b);
             }
             if (followers.Count > 0)
-                me.End_is_leaf = false;
+                me.Has_followers = true;
 
             foreach (Polyline p in to_remove)
                 pool.Remove(p);
 
-            Host.log("end is leaf {0}, childcount {1}", me.End_is_leaf, me.Children.Count);
+            Host.log("branch has {0} children ({0} followers)", me.Children.Count, followers.Count);
 
             if (pool.Count != 0)
             {
@@ -266,7 +266,7 @@ namespace Matmill
                         me.Curve.Add(follower_poly.Points[i].Point, follower_poly.Points[i].Bulge);
                     }
                     me.Children.AddRange(longest_follower.Children);
-                    me.End_is_leaf = longest_follower.End_is_leaf;
+                    me.Has_followers = longest_follower.Has_followers;
                     foreach (Branch b in me.Children)
                         b.Parent = me;
                 }
@@ -328,7 +328,7 @@ namespace Matmill
                 points.Add(new Point2F(pt.X, pt.Y));
             if (points.Count < 2) return points;
             // sometimes first and last points would be too close to each other for the closed shapes, remove dupe
-            if (Point2F.Distance(points[0], points[points.Count - 1]) < GENERAL_TOLERANCE)
+            if (Point2F.Distance(points[0], points[points.Count - 1]) < GENERAL_TOLERANCE * 4)
             {
                 Host.log("removing duplicate point from pointlist");
                 points.RemoveAt(points.Count - 1);
@@ -340,9 +340,9 @@ namespace Matmill
         {
             List<Point2F> plist = new List<Point2F>();
 
-            plist.AddRange(sample_curve(this._reg.OuterCurve, _max_engagement));
+            plist.AddRange(sample_curve(this._reg.OuterCurve, _cutter_r / 10));
             foreach (Polyline p in this._reg.HoleCurves)
-                plist.AddRange(sample_curve(p, _max_engagement));
+                plist.AddRange(sample_curve(p, _cutter_r / 10));
 
             Host.log("Got {0} points", plist.Count);
 
@@ -503,9 +503,9 @@ namespace Matmill
         }
 
 
-        List<Slice> roll(Branch branch, List<Slice> ready_slices, RotationDirection dir, double min_segment_length)
+        void roll(Branch branch, List<Slice> ready_slices, RotationDirection dir, double min_segment_length)
         {
-            List <Point2F> samples = sample_curve(branch.Curve, _sample_distance);
+            List <Point2F> samples = sample_curve(branch.Curve, _sample_distance / 2);
 
             Slice prev_slice = null;
             Point2F pending_slice_center = Point2F.Undefined;
@@ -542,40 +542,60 @@ namespace Matmill
 
                 double max_slice_engage = Slice.Calc_max_engagement(pt, radius, prev_slice);
 
-                if (max_slice_engage < _max_engagement)
-                {
-                    if (max_slice_engage < 0)
-                        Host.log("Negative engagement detected !");
+                // discard extra thin slices
+                if (max_slice_engage < GENERAL_TOLERANCE)   
+                    continue;
 
+                // queue good candidate and continue
+                if (max_slice_engage < _max_engagement) 
+                {
                     pending_slice_center = pt;
                     continue;
                 }
 
+                // max engagement overshoot, time to dequeue candidate
+                pt = pending_slice_center;
+                pending_slice_center = Point2F.Undefined;
+                // TODO: store instead of ineffective recalculation
+                radius = get_mic_radius(pt);    
                 Slice s = new Slice(pt, radius, prev_slice, dir);
-
                 if (s.Segments.Count == 0)
                 {
                     Host.log("Undefined intersection (can't pass thru slot ?). Stopping slicing the branch.");
-                    return branch.Slices;
+                    return;
+                }                
+
+                branch.Slices.Add(s);
+                ready_slices.Add(s);
+                prev_slice = s;                
+            }
+                        
+            if (! pending_slice_center.IsUndefined) 
+            {
+                Point2F pt = pending_slice_center;
+                double radius = get_mic_radius(pt);
+                bool need_emit = false;
+
+                if (! branch.Has_followers) 
+                {
+                    need_emit = true;  // always emit slice in this case                    
                 }
                 else
                 {
-                    pending_slice_center = Point2F.Undefined;
-                    branch.Slices.Add(s);
-                    ready_slices.Add(s);
-                    prev_slice = s;
+                    // emit last slice if it almost maximum
+                    double max_slice_engage = Slice.Calc_max_engagement(pt, radius, prev_slice);
+                    // XXX: heuristic ! :-)
+                    if (max_slice_engage > (_max_engagement - _sample_distance * 2))                    
+                        need_emit = true;
                 }
-            }
 
-            if (branch.End_is_leaf && (! pending_slice_center.IsUndefined))
-            {
-                double radius = get_mic_radius(pending_slice_center);
+
+                if (!need_emit) return;
+                
                 Slice s = new Slice(pending_slice_center, radius, prev_slice, dir);
                 branch.Slices.Add(s);
-                ready_slices.Add(s);
-            }
-
-            return branch.Slices;
+                ready_slices.Add(s);                
+            }            
         }
 
         //XXX: slices are for debug
@@ -684,10 +704,12 @@ namespace Matmill
                 CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(b.Curve.Clone());
 
                 foreach (Slice s in b.Slices)
-                {
+                {                    
                     foreach (Arc2F seg in s.Segments)
                     {
-                        path.Add(new Arc(seg));
+                        Arc arc = new Arc(seg);
+                        arc.Tag = String.Format("me: {0}, so: {1}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
+                        path.Add(arc);
                     }
                 }
             }
