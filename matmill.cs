@@ -111,8 +111,8 @@ namespace Matmill
             public Polyline Curve = null;
             public Branch Parent = null;
             public List<Branch> Children = new List<Branch>();
-            public bool Has_followers = false;
             public List<Slice> Slices = new List<Slice>();
+            public string debug = "";
 
             public List<Branch> Df_traverse()  //
             {
@@ -123,16 +123,6 @@ namespace Matmill
                 return result;
             }
 
-            /*
-            public List<Branch> Df_traverse()  //
-            {
-                List<Branch> result = new List<Branch>();
-                result.Add(this);
-                foreach (Branch b in Children)
-                    result.AddRange(b.Bf_traverse());
-                return result;
-            }
-            */
 
             public double Deep_distance()
             {
@@ -140,6 +130,72 @@ namespace Matmill
                 foreach (Branch b in Children)
                     dist += b.Deep_distance();
                 return dist;
+            }
+
+            int compare_distance_to_me(Branch a, Branch b)
+            {
+                Point3F p_a = a.Curve.Points[0].Point;
+                Point3F p_b = b.Curve.Points[0].Point;
+
+                Point2F p2_a = new Point2F(p_a.X, p_a.Y);
+                Point2F p2_b = new Point2F(p_b.X, p_b.Y);
+
+                if (Point2F.Match(p2_a, p2_b))
+                {
+                    Host.log("branches splitpoint !");
+                    // prefer longest branch in this case
+                    return b.Deep_distance().CompareTo(a.Deep_distance());
+                }
+
+                double min_a = double.MaxValue;
+                double min_b = double.MaxValue;
+                int idx_a = 0;
+                int idx_b = 0;
+                for (int i = 0; i < Curve.Points.Count; i++)
+                {
+                    Point2F pt = new Point2F(Curve.Points[i].Point.X, Curve.Points[i].Point.Y);
+                    double dist_a = Point2F.Distance(pt, p2_a);
+                    double dist_b = Point2F.Distance(pt, p2_b);
+                    if (dist_a < min_a)
+                    {
+                        min_a = dist_a;
+                        idx_a = i;
+                    }
+                    if (dist_b < min_b)
+                    {
+                        min_b = dist_b;
+                        idx_b = i;
+                    }
+                }
+
+                if (idx_a < idx_b) return -1;
+                if (idx_a > idx_b) return 1;
+
+                {
+                    Point2F pt = new Point2F(Curve.Points[idx_a].Point.X, Curve.Points[idx_a].Point.Y);
+                    return Point2F.Distance(pt, p2_a).CompareTo(Point2F.Distance(pt, p2_b));
+                }
+            }
+
+            public void Sort_children_by_distance()
+            {
+                if (Curve.NumSegments == 0)
+                {
+                    Host.warn("zero segments curve");
+                    debug += "0 serments ";
+                    return;
+                }
+                Children.Sort(compare_distance_to_me);
+            }
+
+            public List<Branch> Get_parents()
+            {
+                List<Branch> parents = new List<Branch>();
+                for (Branch p = Parent; p != null; p = p.Parent)
+                {
+                    parents.Add(p);
+                }
+                return parents;
             }
         }
 
@@ -221,8 +277,6 @@ namespace Matmill
                 if (Point2F.Distance(my_end, his_start) < GENERAL_TOLERANCE)
                     followers.Add(b);
             }
-            if (followers.Count > 0)
-                me.Has_followers = true;
 
             foreach (Polyline p in to_remove)
                 pool.Remove(p);
@@ -235,44 +289,50 @@ namespace Matmill
                     attach_branches(b, pool);
             }
 
-            // try to attach next longest branch to me if possible
+            // try to attach next shortest branch to me if possible
             //XXX: maybe it's a wrong thing. Will decide later
-            //if (true)
-            // {
-            if (me.Children.Count == 1)
+            if (followers.Count != 0)
             {
-                if (followers.Count != 0)
+                Host.log("joining follower");
+
+                Branch longest_follower = null;
+                Branch shortest_follower = null;
+                double max_dist = double.MinValue;
+                double min_dist = double.MaxValue;
+                foreach (Branch f in followers)
                 {
-                    Host.log("joining follower");
-
-                    Branch longest_follower = null;
-                    double max_dist = double.MinValue;
-                    foreach (Branch f in followers)
+                    double dist = f.Deep_distance();
+                    if (dist > max_dist)
                     {
-                        double dist = f.Deep_distance();
-                        if (dist > max_dist)
-                        {
-                            max_dist = dist;
-                            longest_follower = f;
-                        }
+                        max_dist = dist;
+                        longest_follower = f;
                     }
-
-                    me.Children.Remove(longest_follower);
-                    Polyline follower_poly = longest_follower.Curve;
-
-                    // XXX: bulge may be wrong
-                    for (int i = 1; i < follower_poly.Points.Count; i++)
+                    if (dist < min_dist)
                     {
-                        me.Curve.Add(follower_poly.Points[i].Point, follower_poly.Points[i].Bulge);
+                        min_dist = dist;
+                        shortest_follower = f;
                     }
-                    me.Children.AddRange(longest_follower.Children);
-                    me.Has_followers = longest_follower.Has_followers;
-                    foreach (Branch b in me.Children)
-                        b.Parent = me;
                 }
+
+                Branch follower = shortest_follower;
+
+                me.Children.Remove(follower);
+                Polyline follower_poly = follower.Curve;
+
+                // XXX: bulge may be wrong
+                for (int i = 1; i < follower_poly.Points.Count; i++)
+                {
+                    me.Curve.Add(follower_poly.Points[i].Point, follower_poly.Points[i].Bulge);
+                }
+                me.Children.AddRange(follower.Children);
+                foreach (Branch b in me.Children)
+                    b.Parent = me;
             }
 
+            // XXX: sort is not working !
             me.Curve.Closed = false;    // be on a safe side
+            me.Sort_children_by_distance();
+            me.Children.Reverse();
         }
 
         Branch get_branches(Polyline[] polys, double radius_sample_step)
@@ -426,26 +486,21 @@ namespace Matmill
             return radius ;
         }
 
-        Slice find_nearest_slice(Branch b, Point2F center)
+        Slice find_nearest_parental_slice(Branch start, Point2F center)
         {
-            while (b.Slices.Count == 0 && b.Parent != null)
-            {
-                Host.log("parent has 0 balls, going up");
-                b = b.Parent;
-            }
-
-            if (b == null) return null;
-
-            double min_dist = double.MaxValue;
             Slice nearest = null;
+            double min_dist = double.MaxValue;
 
-            foreach(Slice s in b.Slices)
+            for (Branch b = start.Parent; b != null; b = b.Parent)
             {
-                double dist = Point2F.Distance(s.Center, center);
-                if (dist < min_dist)
+                foreach(Slice s in b.Slices)
                 {
-                    min_dist = dist;
-                    nearest = s;
+                    double dist = Point2F.Distance(s.Center, center);
+                    if (dist < min_dist)
+                    {
+                        min_dist = dist;
+                        nearest = s;
+                    }
                 }
             }
             return nearest;
@@ -515,7 +570,7 @@ namespace Matmill
             // initial slice
             if (branch.Parent != null)
             {
-                prev_slice = find_nearest_slice(branch.Parent, samples[0]);
+                prev_slice = find_nearest_parental_slice(branch, samples[0]);
             }
             else
             {
@@ -543,11 +598,11 @@ namespace Matmill
                 double max_slice_engage = Slice.Calc_max_engagement(pt, radius, prev_slice);
 
                 // discard extra thin slices
-                if (max_slice_engage < GENERAL_TOLERANCE)   
+                if (max_slice_engage < GENERAL_TOLERANCE)
                     continue;
 
                 // queue good candidate and continue
-                if (max_slice_engage < _max_engagement) 
+                if (max_slice_engage < _max_engagement)
                 {
                     pending_slice_center = pt;
                     continue;
@@ -557,45 +612,28 @@ namespace Matmill
                 pt = pending_slice_center;
                 pending_slice_center = Point2F.Undefined;
                 // TODO: store instead of ineffective recalculation
-                radius = get_mic_radius(pt);    
+                radius = get_mic_radius(pt);
                 Slice s = new Slice(pt, radius, prev_slice, dir);
                 if (s.Segments.Count == 0)
                 {
                     Host.log("Undefined intersection (can't pass thru slot ?). Stopping slicing the branch.");
                     return;
-                }                
+                }
 
                 branch.Slices.Add(s);
                 ready_slices.Add(s);
-                prev_slice = s;                
+                prev_slice = s;
             }
-                        
-            if (! pending_slice_center.IsUndefined) 
+
+            if (! pending_slice_center.IsUndefined)
             {
                 Point2F pt = pending_slice_center;
+                // TODO: store instead of ineffective recalculation
                 double radius = get_mic_radius(pt);
-                bool need_emit = false;
-
-                if (! branch.Has_followers) 
-                {
-                    need_emit = true;  // always emit slice in this case                    
-                }
-                else
-                {
-                    // emit last slice if it almost maximum
-                    double max_slice_engage = Slice.Calc_max_engagement(pt, radius, prev_slice);
-                    // XXX: heuristic ! :-)
-                    if (max_slice_engage > (_max_engagement - _sample_distance * 2))                    
-                        need_emit = true;
-                }
-
-
-                if (!need_emit) return;
-                
-                Slice s = new Slice(pending_slice_center, radius, prev_slice, dir);
+                Slice s = new Slice(pt, radius, prev_slice, dir);
                 branch.Slices.Add(s);
-                ready_slices.Add(s);                
-            }            
+                ready_slices.Add(s);
+            }
         }
 
         //XXX: slices are for debug
@@ -701,10 +739,13 @@ namespace Matmill
             foreach (Branch b in traverse)
             {
                 // XXX: for debug
-                CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(b.Curve.Clone());
-
+                //path.Add(b.Curve.Clone());
+                Entity p = b.Curve.Clone();
+                p.Tag = b.Get_parents().Count.ToString();
+                p.Tag += b.debug;
+                CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(p);
                 foreach (Slice s in b.Slices)
-                {                    
+                {
                     foreach (Arc2F seg in s.Segments)
                     {
                         Arc arc = new Arc(seg);
