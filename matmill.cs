@@ -68,7 +68,7 @@ namespace Matmill
 
             public void Add(Line2F seg)
             {
-                ulong[] h1 = hash(seg.p1);                
+                ulong[] h1 = hash(seg.p1);
 
                 insert_seg(h1[0], seg);
                 insert_seg(h1[1], seg);
@@ -85,7 +85,7 @@ namespace Matmill
 
             public void Remove(Line2F seg)
             {
-                ulong[] h1 = hash(seg.p1);                
+                ulong[] h1 = hash(seg.p1);
 
                 remove_seg(h1[0], seg);
                 remove_seg(h1[1], seg);
@@ -251,6 +251,8 @@ namespace Matmill
 
             public bool Is_leaf { get { return Children.Count == 0; } }
 
+            double _deep_distance = 0;
+
             public List<Branch> Df_traverse()  //
             {
                 List<Branch> result = new List<Branch>();
@@ -260,9 +262,11 @@ namespace Matmill
                 return result;
             }
 
-
+            // NOTE: deep distance is memoized, so this should be called only on finalized branch
             public double Deep_distance()
             {
+                if (_deep_distance != 0) return _deep_distance;
+
                 double dist = Curve.GetPerimeter();
                 foreach (Branch b in Children)
                     dist += b.Deep_distance();
@@ -315,7 +319,7 @@ namespace Matmill
         {
             List<Point2F> points = new List<Point2F>();
             foreach (Point3F pt in PointListUtils.CreatePointlistFromPolylineStep(p, step).Points.ToArray())
-                points.Add(new Point2F(pt.X, pt.Y));
+                points.Add((Point2F) pt);
             if (points.Count < 2) return points;
             // sometimes first and last points would be too close to each other for the closed shapes, remove dupe
             if (Point2F.Distance(points[0], points[points.Count - 1]) < GENERAL_TOLERANCE * 4)
@@ -328,6 +332,8 @@ namespace Matmill
 
         List<Line2F> get_mat_segments()
         {
+            bool ANALIZE_INNER_INTERSECTIONS = false;
+
             List<Point2F> plist = new List<Point2F>();
 
             plist.AddRange(sample_curve(this._reg.OuterCurve, _cutter_r / 10));
@@ -361,35 +367,36 @@ namespace Matmill
 
             List<GraphEdge> edges = new Voronoi(GENERAL_TOLERANCE).generateVoronoi(xs, ys, min_x, max_x, min_y, max_y);
 
-            Host.log("voroning completed");
+            Host.log("voroning completed. Got {0} edges", edges.Count);
 
             List<Line2F> inner_segments = new List<Line2F>();
 
             foreach (GraphEdge e in edges)
             {
-                if (new Point2F(e.x1, e.y1).DistanceTo(new Point2F(e.x2, e.y2)) < GENERAL_TOLERANCE)
-                    continue;
+                Line2F seg = new Line2F(e.x1, e.y1, e.x2, e.y2);
 
-                Line2F line = new Line2F(e.x1, e.y1, e.x2, e.y2);
-                Polyline p = new Line(line).ToPolyline();
-
-                if (this._reg.OuterCurve.Intersects(p)) continue;
-                if (this._reg.OuterCurve.PolylineOutsidePolyline(p, GENERAL_TOLERANCE)) continue;
+                if (seg.Length() < GENERAL_TOLERANCE) continue;    // extra small segment, discard
+                if (!_reg.OuterCurve.PointInPolyline(seg.p1, GENERAL_TOLERANCE)) continue;  // p1 is outside of outer curve boundary
+                if (!_reg.OuterCurve.PointInPolyline(seg.p2, GENERAL_TOLERANCE)) continue;  // p2 is outside of outer curve boundary
+                if (ANALIZE_INNER_INTERSECTIONS && _reg.OuterCurve.LineIntersections(seg, GENERAL_TOLERANCE).Length != 0) continue; // both endpoints are inside, but there are intersections, outer curve must be concave
 
                 bool should_add = true;
                 foreach (Polyline hole in this._reg.HoleCurves)
                 {
-                    if (hole.Intersects(p) || hole.PolylineInsidePolyline(p, GENERAL_TOLERANCE))
+                    if (   hole.PointInPolyline(seg.p1, GENERAL_TOLERANCE)                      // p1 is inside hole
+                        || hole.PointInPolyline(seg.p2, GENERAL_TOLERANCE)                      // p2 is inside hole
+                        || (ANALIZE_INNER_INTERSECTIONS && hole.LineIntersections(seg, GENERAL_TOLERANCE).Length != 0))          // p1, p2 are outside hole, but there are intersections
                     {
                         should_add = false;
                         break;
                     }
                 }
 
-
                 if (should_add)
-                    inner_segments.Add(line);
+                    inner_segments.Add(seg);
             }
+
+            Host.log("Got {0} inner segments", inner_segments.Count);
 
             return inner_segments;
         }
@@ -401,13 +408,13 @@ namespace Matmill
             Vector2F normal = new Vector2F();
             int seg = 0;
 
-            Point3F nearest = this._reg.OuterCurve.GetNearestPoint(pt, ref normal, ref seg, true);
-            radius = Point2F.Distance(point(nearest), pt);
+            Point2F nearest = (Point2F) this._reg.OuterCurve.GetNearestPoint(pt, ref normal, ref seg, true);
+            radius = pt.DistanceTo(nearest);
 
             foreach (Polyline hole in this._reg.HoleCurves)
             {
-                nearest = hole.GetNearestPoint(pt, ref normal, ref seg, true);
-                double dist = Point2F.Distance(point(nearest), pt);
+                nearest = (Point2F)hole.GetNearestPoint(pt, ref normal, ref seg, true);
+                double dist = pt.DistanceTo(nearest);
                 if (dist < radius)
                     radius = dist;
             }
@@ -620,7 +627,7 @@ namespace Matmill
 
         void attach_segments(Branch me, Segpool pool)
         {
-            Point2F running_end = point(me.Curve.Points[me.Curve.Points.Count - 1].Point);
+            Point2F running_end = (Point2F)me.Curve.Points[me.Curve.Points.Count - 1].Point;
             List<Point2F> followers;
 
             while (true)
