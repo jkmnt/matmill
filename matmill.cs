@@ -6,10 +6,11 @@ using CamBam.UI;
 using CamBam.CAD;
 using CamBam.Geom;
 
+using Tree4;
 using Voronoi2;
 
 namespace Matmill
-{
+{    
     public class Pocket_generator
     {
 
@@ -289,9 +290,11 @@ namespace Matmill
         double VORONOI_MARGIN = 1.0;
 
         Region _reg;
-        double _cutter_r = 3.0;
+        T4 _t4;
+
+        double _cutter_r = 1.5;
         double _max_engagement = 3.0 * 0.4;
-        double _sample_distance = 0.1;
+        double _sample_distance = 3.0 * 0.4 * 0.1;
 
         public double cutter_d        {set { _cutter_r = value / 2.0;}}
         public double max_engagement  {set { _max_engagement = value; } }
@@ -363,7 +366,7 @@ namespace Matmill
             min_x -= VORONOI_MARGIN;
             max_x += VORONOI_MARGIN;
             min_y -= VORONOI_MARGIN;
-            max_y += VORONOI_MARGIN;
+            max_y += VORONOI_MARGIN;            
 
             List<GraphEdge> edges = new Voronoi(GENERAL_TOLERANCE).generateVoronoi(xs, ys, min_x, max_x, min_y, max_y);
 
@@ -401,8 +404,42 @@ namespace Matmill
             return inner_segments;
         }
 
+//      double get_mic_radius_bsp(Point2F from)
+//      {
+//          double min_dist = double.MaxValue;
+//          List<IBSPItem> items = _bsp.GetNearItems(from, GENERAL_TOLERANCE);
+//
+//          if (items == null)
+//          {
+//              Host.log("not mic detected !");
+//              return min_dist;
+//          }
+//
+//          foreach (IBSPItem item in items)
+//          {
+//              double d = double.MaxValue;
+//              if (item is Line2F)
+//                  ((Line2F)item).NearestPoint(from, ref d);
+//              else
+//                  ((Arc2F)item).NearestPoint(from, ref d);
+//
+//              if (d < min_dist)
+//                  min_dist = d;
+//          }
+//
+//          if (min_dist == double.MaxValue)
+//          {
+//              Host.log("no mic !");
+//          }
+//
+//          return min_dist;
+//      }
+
+
         double get_mic_radius(Point2F pt)
         {
+//            return get_mic_radius_bsp(pt);
+
             double radius;
 
             Vector2F normal = new Vector2F();
@@ -753,9 +790,53 @@ namespace Matmill
             return path;
         }
 
+        void populate_t4(Polyline p)
+        {
+            for (int i = 0; i < p.NumSegments; i++)
+            {
+                object pi = p.GetSegment(i);    // would be Line2F or Arc2F
+                T4_rect rect;
+                if (pi is Line2F)
+                {
+                    Line2F line = ((Line2F)pi);
+                    rect = new T4_rect(Math.Min(line.p1.X, line.p2.X),
+                                       Math.Min(line.p1.Y, line.p2.Y),
+                                       Math.Max(line.p1.X, line.p2.X),
+                                       Math.Max(line.p1.Y, line.p2.Y));
+                }
+                else
+                {
+                    Point2F min = Point2F.Undefined;
+                    Point2F max = Point2F.Undefined;
+                    ((Arc2F)pi).GetExtrema(ref min, ref max);
+                    rect = new T4_rect(min.X, min.Y, max.X, max.Y);
+                }
+
+                _t4.Add(rect, pi);
+            }
+        }
+
+        public void Debug_t4()
+        {
+            new T4_debugger(CamBamUI.MainUI.ActiveView, _t4);            
+        }
+
         public Pocket_generator(Region reg)
         {
-            this._reg = reg;
+            _reg = reg;
+
+            Point3F min = Point3F.Undefined;
+            Point3F max = Point3F.Undefined;
+
+            _reg.GetExtrema(ref min, ref max);
+
+            _t4 = new T4(new T4_rect(min.X - 1, min.Y - 1, max.X + 1, max.Y + 1));
+
+            populate_t4(_reg.OuterCurve);
+            foreach (Polyline hole in reg.HoleCurves)
+            {
+                populate_t4(hole);
+            }
         }
     }
 }
