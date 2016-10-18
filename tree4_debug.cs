@@ -31,14 +31,29 @@ namespace Tree4
             CamBamUI.MainUI.ActiveView.RepaintEditMode();
         }
 
+        double get_mic_radius(Point2F pt)
+        {
+            double radius = double.MaxValue;
+            foreach (object item in _t4.Get_nearest_objects(pt.X, pt.Y))
+            {
+                double dist = 0;
+                if (item is Line2F)
+                    ((Line2F)item).NearestPoint(pt, ref dist);
+                else
+                    ((Arc2F)item).NearestPoint(pt, ref dist);
+                if (dist < radius)
+                    radius = dist;
+            }
+
+            return radius;
+        }
+
         public override void OnPaint(ICADView iv, Display3D d3d)
         {
             if (base.ReturnStatus != EditMode.ReturnStatusCode.Running) return;
 
-            //Layer layer = this._ActiveView.CADFile.EnsureActiveLayer(true);
             d3d.ModelTransform = Matrix4x4F.Identity;
             d3d.LineColor = System.Drawing.Color.Cyan;
-            //d3d.DrawPoint(to_drawing_point(this.cursor), (float)this.pixel_tolerance);
 
             Point3F point = to_drawing_point(this.cursor);
             foreach (T4_rect rect in _t4.Get_nearest_obj_rects(point.X, point.Y))
@@ -51,8 +66,13 @@ namespace Tree4
                 d3d.DrawLine(p1, p2);
                 d3d.DrawLine(p2, p3);
                 d3d.DrawLine(p3, p0);
+            }            
 
-            }
+            double radius = get_mic_radius((Point2F)point);        
+            Circle mic = new Circle(point, radius);
+
+            d3d.LineColor = System.Drawing.Color.Magenta;
+            mic.Paint(d3d);
 
             base.OnPaint(iv, d3d);
         }

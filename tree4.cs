@@ -259,10 +259,8 @@ namespace Tree4
         {
             List<object> objects = new List<object>();
 
-            foreach (T4_occupant occupant in get_nearest_occupants(x, y))
-            {
-                objects.Add(occupant.Obj);
-            }
+            foreach (T4_occupant occupant in get_nearest_occupants(x, y))            
+                objects.Add(occupant.Obj);            
 
             return objects;
         }
@@ -271,10 +269,8 @@ namespace Tree4
         {
             List<T4_rect> rects = new List<T4_rect>();
 
-            foreach (T4_occupant occupant in get_nearest_occupants(x, y))
-            {
-                rects.Add(occupant.Rect);
-            }
+            foreach (T4_occupant occupant in get_nearest_occupants(x, y))            
+                rects.Add(occupant.Rect);            
 
             return rects;
         }

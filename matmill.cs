@@ -10,7 +10,7 @@ using Tree4;
 using Voronoi2;
 
 namespace Matmill
-{    
+{
     public class Pocket_generator
     {
 
@@ -366,7 +366,7 @@ namespace Matmill
             min_x -= VORONOI_MARGIN;
             max_x += VORONOI_MARGIN;
             min_y -= VORONOI_MARGIN;
-            max_y += VORONOI_MARGIN;            
+            max_y += VORONOI_MARGIN;
 
             List<GraphEdge> edges = new Voronoi(GENERAL_TOLERANCE).generateVoronoi(xs, ys, min_x, max_x, min_y, max_y);
 
@@ -404,54 +404,16 @@ namespace Matmill
             return inner_segments;
         }
 
-//      double get_mic_radius_bsp(Point2F from)
-//      {
-//          double min_dist = double.MaxValue;
-//          List<IBSPItem> items = _bsp.GetNearItems(from, GENERAL_TOLERANCE);
-//
-//          if (items == null)
-//          {
-//              Host.log("not mic detected !");
-//              return min_dist;
-//          }
-//
-//          foreach (IBSPItem item in items)
-//          {
-//              double d = double.MaxValue;
-//              if (item is Line2F)
-//                  ((Line2F)item).NearestPoint(from, ref d);
-//              else
-//                  ((Arc2F)item).NearestPoint(from, ref d);
-//
-//              if (d < min_dist)
-//                  min_dist = d;
-//          }
-//
-//          if (min_dist == double.MaxValue)
-//          {
-//              Host.log("no mic !");
-//          }
-//
-//          return min_dist;
-//      }
-
-
         double get_mic_radius(Point2F pt)
         {
-//            return get_mic_radius_bsp(pt);
-
-            double radius;
-
-            Vector2F normal = new Vector2F();
-            int seg = 0;
-
-            Point2F nearest = (Point2F) this._reg.OuterCurve.GetNearestPoint(pt, ref normal, ref seg, true);
-            radius = pt.DistanceTo(nearest);
-
-            foreach (Polyline hole in this._reg.HoleCurves)
+            double radius = double.MaxValue;
+            foreach(object item in _t4.Get_nearest_objects(pt.X, pt.Y))
             {
-                nearest = (Point2F)hole.GetNearestPoint(pt, ref normal, ref seg, true);
-                double dist = pt.DistanceTo(nearest);
+                double dist = 0;
+                if (item is Line2F)
+                    ((Line2F)item).NearestPoint(pt, ref dist);
+                else
+                    ((Arc2F)item).NearestPoint(pt, ref dist);
                 if (dist < radius)
                     radius = dist;
             }
@@ -462,7 +424,7 @@ namespace Matmill
                 radius -= _cutter_r;
             }
 
-            return radius ;
+            return radius;
         }
 
         Slice find_prev_parental_slice(Branch start)
@@ -818,7 +780,7 @@ namespace Matmill
 
         public void Debug_t4()
         {
-            new T4_debugger(CamBamUI.MainUI.ActiveView, _t4);            
+            new T4_debugger(CamBamUI.MainUI.ActiveView, _t4);
         }
 
         public Pocket_generator(Region reg)
