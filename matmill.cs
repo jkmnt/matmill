@@ -11,306 +11,336 @@ using Voronoi2;
 
 namespace Matmill
 {
-    public class Pocket_generator
+    class Branch
     {
+        public readonly Polyline Curve = new Polyline();
+        public readonly Branch Parent = null;
+        public readonly List<Branch> Children = new List<Branch>();
+        public readonly List<Slice> Slices = new List<Slice>();
+        public string Debug = "";
 
-        // special structure for a fast joining of chained line segments
-        // segments (references to them) are stored in dictionary under the long integer key, crafted from
-        // their coordinates. segment is stored twice, under the keys for start and end points.
-        // lookup should give a small range of nearby segments, then finepicked by the distance compare
-        // this way we may find next segment(s) in chain in almost O(1)
+        public bool Is_leaf { get { return Children.Count == 0; } }
 
-        // pull operation removes chained segments from pool and return them.
+        private double _deep_distance = 0;
 
-        // segments may map to different keys if their coordinates are rounded to neighbour integers,
-        // this is remedied by storing 4 hashes instead of one, with x and y coordinates floored and
-        // ceiled. it corresponds to 4 nearby cells in 2d grid
-        class Segpool
+        public List<Branch> Df_traverse()  //
         {
-            Dictionary<ulong, List<Line2F>> _pool;
-            double _tolerance;
+            List<Branch> result = new List<Branch>();
+            result.Add(this);
+            foreach (Branch b in Children)
+                result.AddRange(b.Df_traverse());
+            return result;
+        }
 
-            public int N_hashes { get { return _pool.Count; } }
+        // NOTE: deep distance is memoized, so this should be called only on finalized branch
+        public double Deep_distance()
+        {
+            if (_deep_distance != 0)
+                return _deep_distance;
 
-            public Segpool(int capacity, double tolerance)
+            _deep_distance = Curve.GetPerimeter();
+            foreach (Branch b in Children)
+                _deep_distance += b.Deep_distance();
+
+            return _deep_distance;
+        }
+
+        public List<Branch> Get_parents()
+        {
+            List<Branch> parents = new List<Branch>();
+            for (Branch p = Parent; p != null; p = p.Parent)
             {
-                _pool = new Dictionary<ulong, List<Line2F>>(capacity * 2 * 4);
-                _tolerance = tolerance;
+                parents.Add(p);
             }
+            return parents;
+        }
 
-            ulong[] hash(Point2F pt)
+        public Branch(Branch parent)
+        {
+            Parent = parent;
+        }
+    }
+
+    class Slice
+    {
+        private readonly Circle2F _ball;
+        private Point2F _p1;
+        private Point2F _p2;
+        private List<Arc2F> _segments = new List<Arc2F>();
+        private readonly double _max_engagement;
+        private readonly double _mrr;
+
+        public Circle2F Ball { get { return _ball; } }
+
+        public Point2F Center { get { return _ball.Center; } }
+        public double Radius { get { return _ball.Radius; } }
+        public double Max_engagement { get { return _max_engagement; } }
+        public double Mrr { get { return _mrr; } }
+        public List<Arc2F> Segments { get { return _segments; } }
+
+        static public double Calc_max_engagement(Point2F center, double radius, Slice prev_slice)
+        {
+            double delta_s = Point2F.Distance(center, prev_slice.Center);
+            double delta_r = radius - prev_slice.Radius;
+            return delta_s + delta_r;
+        }
+
+        static public double Calc_mrr(Point2F center, double radius, Slice prev_slice, double cutter_r)
+        {
+            // http://mathworld.wolfram.com/Lens.html
+            // result = area of tested circle - area of inner lens between two circles
+            double d = center.DistanceTo(prev_slice.Center);
+            double R = prev_slice.Radius + cutter_r;
+            double r = radius + cutter_r;
+
+            double A_lens =    r * r * Math.Acos((d*d + r*r - R*R) / 2.0 / d / r)
+                             + R * R * Math.Acos((d*d + R*R - r*r) / 2.0 / d / R)
+                             - Math.Sqrt((-d + r + R)*(d + r - R)*(d - r + R)*(d + r +R)) / 2.0;
+
+            return Math.PI * r * r - A_lens;
+        }
+
+        public Slice(Point2F center, double radius, Slice prev_slice, RotationDirection dir, double cutter_r)
+        {
+            _max_engagement = Slice.Calc_max_engagement(center, radius, prev_slice);
+            _mrr = Slice.Calc_mrr(center, radius, prev_slice, cutter_r);
+            _ball = new Circle2F(center, radius);
+            Finalize(prev_slice, dir);
+        }
+
+        // temporary lightwidth slice
+        public Slice(Point2F center, double radius, Slice prev_slice, double cutter_r)
+        {
+            _max_engagement = Slice.Calc_max_engagement(center, radius, prev_slice);
+            _mrr = Slice.Calc_mrr(center, radius, prev_slice, cutter_r);
+            _ball = new Circle2F(center, radius);
+        }
+
+        public void Finalize(Slice prev_slice, RotationDirection dir)
+        {
+            Line2F insects = prev_slice.Ball.CircleIntersect(_ball);
+
+            if (insects.p1.IsUndefined || insects.p2.IsUndefined)
             {
-                double hashscale = 1 / (_tolerance * 10);
-                double x = pt.X * hashscale;
-                double y = pt.Y * hashscale;
+                ;
+            }
+            else
+            {
+                Arc2F arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
 
-                return new ulong[]
-                {
+                if (!arc.VectorInsideArc(new Vector2F(prev_slice.Center, _ball.Center)))
+                    arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
+
+                _p1 = arc.P1;
+                _p2 = arc.P2;
+
+                _segments.Add(arc);
+            }
+        }
+
+        public Slice(Point2F center, double radius, RotationDirection dir)
+        {
+            _ball = new Circle2F(center, radius);
+            _max_engagement = 0;
+            // XXX: hack, just for now
+            Arc2F arc0 = new Arc2F(center, radius, 0, 120);
+            Arc2F arc1 = new Arc2F(center, radius, 120, 120);
+            Arc2F arc2 = new Arc2F(center, radius, 240, 120);
+            _segments.Add(arc0);
+            _segments.Add(arc1);
+            _segments.Add(arc2);
+        }
+    }
+
+    // special structure for a fast joining of chained line segments
+    // segments (references to them) are stored in dictionary under the long integer key, crafted from
+    // their coordinates. segment is stored twice, under the keys for start and end points.
+    // lookup should give a small range of nearby segments, then finepicked by the distance compare
+    // this way we may find next segment(s) in chain in almost O(1)
+
+    // pull operation removes chained segments from pool and return them.
+
+    // segments may map to different keys if their coordinates are rounded to neighbour integers,
+    // this is remedied by storing 4 hashes instead of one, with x and y coordinates floored and
+    // ceiled. it corresponds to 4 nearby cells in 2d grid
+    class Segpool
+    {
+        private Dictionary<ulong, List<Line2F>> _pool;
+        private readonly double _tolerance;
+
+        public int N_hashes { get { return _pool.Count; } }
+
+        private ulong[] hash(Point2F pt)
+        {
+            double hashscale = 1 / (_tolerance * 10);
+            double x = pt.X * hashscale;
+            double y = pt.Y * hashscale;
+
+            return new ulong[]
+            {
                     ((ulong)Math.Floor(y) << 32) | (ulong)Math.Floor(x),
                     ((ulong)Math.Floor(y) << 32) | (ulong)Math.Ceiling(x),
                     ((ulong)Math.Ceiling(y) << 32) | (ulong)Math.Floor(x),
                     ((ulong)Math.Ceiling(y) << 32) | (ulong)Math.Ceiling(x),
-                };
-            }
+            };
+        }
 
-            void insert_seg(ulong h, Line2F seg)
+        private void insert_seg(ulong h, Line2F seg)
+        {
+            if (!_pool.ContainsKey(h))
+                _pool[h] = new List<Line2F>();
+            if (!_pool[h].Contains(seg))
+                _pool[h].Add(seg);
+        }
+
+        private void remove_seg(ulong h, Line2F seg)
+        {
+            if (_pool.ContainsKey(h))
+                _pool[h].Remove(seg);
+        }
+
+        public void Add(Line2F seg)
+        {
+            ulong[] h1 = hash(seg.p1);
+
+            insert_seg(h1[0], seg);
+            insert_seg(h1[1], seg);
+            insert_seg(h1[2], seg);
+            insert_seg(h1[3], seg);
+
+            ulong[] h2 = hash(seg.p2);
+
+            insert_seg(h2[0], seg);
+            insert_seg(h2[1], seg);
+            insert_seg(h2[2], seg);
+            insert_seg(h2[3], seg);
+        }
+
+        public void Remove(Line2F seg)
+        {
+            ulong[] h1 = hash(seg.p1);
+
+            remove_seg(h1[0], seg);
+            remove_seg(h1[1], seg);
+            remove_seg(h1[2], seg);
+            remove_seg(h1[3], seg);
+
+            ulong[] h2 = hash(seg.p2);
+
+            remove_seg(h2[0], seg);
+            remove_seg(h2[1], seg);
+            remove_seg(h2[2], seg);
+            remove_seg(h2[3], seg);
+        }
+
+        public List<Point2F> Pull_follow_points(Point2F join_pt)
+        {
+            List<Point2F> followers = new List<Point2F>();
+            List<Line2F> processed = new List<Line2F>();
+
+            ulong[] h = hash(join_pt);
+
+            for (int i = 0; i < 4; i++)
             {
-                if (!_pool.ContainsKey(h))
-                    _pool[h] = new List<Line2F>();
-                if (!_pool[h].Contains(seg))
-                    _pool[h].Add(seg);
-            }
+                if (!_pool.ContainsKey(h[i]))
+                    continue;
 
-            void remove_seg(ulong h, Line2F seg)
-            {
-                if (_pool.ContainsKey(h))
-                    _pool[h].Remove(seg);
-            }
-
-            public void Add(Line2F seg)
-            {
-                ulong[] h1 = hash(seg.p1);
-
-                insert_seg(h1[0], seg);
-                insert_seg(h1[1], seg);
-                insert_seg(h1[2], seg);
-                insert_seg(h1[3], seg);
-
-                ulong[] h2 = hash(seg.p2);
-
-                insert_seg(h2[0], seg);
-                insert_seg(h2[1], seg);
-                insert_seg(h2[2], seg);
-                insert_seg(h2[3], seg);
-            }
-
-            public void Remove(Line2F seg)
-            {
-                ulong[] h1 = hash(seg.p1);
-
-                remove_seg(h1[0], seg);
-                remove_seg(h1[1], seg);
-                remove_seg(h1[2], seg);
-                remove_seg(h1[3], seg);
-
-                ulong[] h2 = hash(seg.p2);
-
-                remove_seg(h2[0], seg);
-                remove_seg(h2[1], seg);
-                remove_seg(h2[2], seg);
-                remove_seg(h2[3], seg);
-            }
-
-            public List<Point2F> Pull_follow_points(Point2F join_pt)
-            {
-                List<Point2F> followers = new List<Point2F>();
-                List<Line2F> processed = new List<Line2F>();
-
-                ulong[] h = hash(join_pt);
-
-                for (int i = 0; i < 4; i++)
+                foreach (Line2F seg in _pool[h[i]])
                 {
-                    if (!_pool.ContainsKey(h[i])) continue;
+                    if (processed.Contains(seg))
+                        continue;  // already got it
 
-                    foreach (Line2F seg in _pool[h[i]])
+                    if (join_pt.DistanceTo(seg.p1) < _tolerance)
                     {
-                        if (processed.Contains(seg)) continue;  // already got it
-
-                        if (join_pt.DistanceTo(seg.p1) < _tolerance)
-                        {
-                            followers.Add(seg.p2);
-                            processed.Add(seg);
-                        }
-                        else if (join_pt.DistanceTo(seg.p2) < _tolerance)
-                        {
-                            followers.Add(seg.p1);
-                            processed.Add(seg);
-                        }
+                        followers.Add(seg.p2);
+                        processed.Add(seg);
+                    }
+                    else if (join_pt.DistanceTo(seg.p2) < _tolerance)
+                    {
+                        followers.Add(seg.p1);
+                        processed.Add(seg);
                     }
                 }
-
-                foreach (Line2F seg in processed)
-                {
-                    Remove(seg);
-                }
-
-                return followers;
             }
+
+            foreach (Line2F seg in processed)
+            {
+                Remove(seg);
+            }
+
+            return followers;
         }
 
-        class Sweep_comparer : IComparer
+        public Segpool(int capacity, double tolerance)
         {
-            Point2F _origin;
-            Point2F _center;
-            RotationDirection _dir;
-            Vector2F _start_vector;
-            public Sweep_comparer(Point2F origin, Point2F center, RotationDirection dir)
-            {
-                _origin = origin;
-                _center = center;
-                _dir = dir;
-                _start_vector = new Vector2F(center, origin);
-            }
-
-            double angle_to_start_vector(Point2F p)
-            {
-                Vector2F v = new Vector2F(_center, p);
-                double angle = Math.Atan2(Vector2F.Determinant(_start_vector, v), Vector2F.DotProduct(_start_vector, v));
-                return (_dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
-            }
-
-            public int Compare(object a, object b)
-            {
-                double d0 = angle_to_start_vector((Point2F)a);
-                double d1 = angle_to_start_vector((Point2F)b);
-
-                if (d0 < d1) return -1;
-                if (d0 > d1) return 1;
-                return 0;
-            }
+            _pool = new Dictionary<ulong, List<Line2F>>(capacity * 2 * 4);
+            _tolerance = tolerance;
         }
+    }
 
-        class Slice
+    class Sweep_comparer : IComparer
+    {
+        private readonly Point2F _origin;
+        private readonly Point2F _center;
+        private readonly RotationDirection _dir;
+        private readonly Vector2F _start_vector;
+
+        private double angle_to_start_vector(Point2F p)
         {
-            Circle2F _ball;
-            Point2F _p1;
-            Point2F _p2;
-            List<Arc2F> _segments = new List<Arc2F>();
-            double _max_engagement;
-
-            public Circle2F Ball { get { return _ball; } }
-
-            public Point2F Center { get { return _ball.Center; }}
-            public double Radius { get { return _ball.Radius; }}
-            public double Max_engagement { get { return _max_engagement; }}
-            public List<Arc2F> Segments { get { return _segments; } }
-
-            static public double Calc_max_engagement(Point2F center, double radius, Slice prev_slice)
-            {
-                double delta_s = Point2F.Distance(center, prev_slice.Center);
-                double delta_r = radius - prev_slice.Radius;
-                return delta_s + delta_r;
-            }
-
-            public Slice(Point2F center, double radius, Slice prev_slice, RotationDirection dir)
-            {
-                _max_engagement = Slice.Calc_max_engagement(center, radius, prev_slice);
-                _ball = new Circle2F(center, radius);
-                Finalize(prev_slice, dir);
-            }
-
-            // temporary lightwidth slice
-            public Slice(Point2F center, double radius, Slice prev_slice)
-            {
-                _max_engagement = Slice.Calc_max_engagement(center, radius, prev_slice);
-                _ball = new Circle2F(center, radius);
-            }
-
-            public void Finalize(Slice prev_slice, RotationDirection dir)
-            {
-                Line2F insects = prev_slice.Ball.CircleIntersect(_ball);
-
-                if (insects.p1.IsUndefined || insects.p2.IsUndefined)
-                {
-                    ;
-                }
-                else
-                {
-                    Arc2F arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
-
-                    if (! arc.VectorInsideArc(new Vector2F(prev_slice.Center, _ball.Center)))
-                        arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
-
-                    _p1 = arc.P1;
-                    _p2 = arc.P2;
-
-                    _segments.Add(arc);
-                }
-            }
-
-            public Slice(Point2F center, double radius, RotationDirection dir)
-            {
-                _ball = new Circle2F(center, radius);
-                _max_engagement = 0;
-                // XXX: hack, just for now
-                Arc2F arc0 = new Arc2F(center, radius, 0, 120);
-                Arc2F arc1 = new Arc2F(center, radius, 120, 120);
-                Arc2F arc2 = new Arc2F(center, radius, 240, 120);
-                _segments.Add(arc0);
-                _segments.Add(arc1);
-                _segments.Add(arc2);
-            }
+            Vector2F v = new Vector2F(_center, p);
+            double angle = Math.Atan2(Vector2F.Determinant(_start_vector, v), Vector2F.DotProduct(_start_vector, v));
+            return (_dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
         }
 
-        class Branch
+        public Sweep_comparer(Point2F origin, Point2F center, RotationDirection dir)
         {
-            public Polyline Curve = null;
-            public Branch Parent = null;
-            public List<Branch> Children = new List<Branch>();
-            public List<Slice> Slices = new List<Slice>();
-            public string Debug = "";
-
-            public bool Is_leaf { get { return Children.Count == 0; } }
-
-            double _deep_distance = 0;
-
-            public List<Branch> Df_traverse()  //
-            {
-                List<Branch> result = new List<Branch>();
-                result.Add(this);
-                foreach (Branch b in Children)
-                    result.AddRange(b.Df_traverse());
-                return result;
-            }
-
-            // NOTE: deep distance is memoized, so this should be called only on finalized branch
-            public double Deep_distance()
-            {
-                if (_deep_distance != 0) return _deep_distance;
-
-                double dist = Curve.GetPerimeter();
-                foreach (Branch b in Children)
-                    dist += b.Deep_distance();
-                return dist;
-            }
-
-
-            public List<Branch> Get_parents()
-            {
-                List<Branch> parents = new List<Branch>();
-                for (Branch p = Parent; p != null; p = p.Parent)
-                {
-                    parents.Add(p);
-                }
-                return parents;
-            }
+            _origin = origin;
+            _center = center;
+            _dir = dir;
+            _start_vector = new Vector2F(center, origin);
         }
 
-        double GENERAL_TOLERANCE = 0.001;
-        double VORONOI_MARGIN = 1.0;
+        public int Compare(object a, object b)
+        {
+            double d0 = angle_to_start_vector((Point2F)a);
+            double d1 = angle_to_start_vector((Point2F)b);
 
-        Region _reg;
-        T4 _t4;
+            if (d0 < d1)
+                return -1;
+            if (d0 > d1)
+                return 1;
+            return 0;
+        }
+    }
 
-        double _cutter_r = 1.5;
-        double _max_engagement = 3.0 * 0.4;
-        double _sample_distance = 3.0 * 0.4 * 0.1;
+    public class Pocket_generator
+    {
+        private const double GENERAL_TOLERANCE = 0.001;
+        private const double VORONOI_MARGIN = 1.0;
+        private const bool ANALIZE_INNER_INTERSECTIONS = false;
+
+        private readonly Region _reg;
+        private readonly T4 _t4;
+
+        private double _cutter_r = 1.5;
+        private double _max_engagement = 3.0 * 0.4;
+        private double _sample_distance = 3.0 * 0.4 * 0.1;
 
         public double cutter_d        {set { _cutter_r = value / 2.0;}}
         public double max_engagement  {set { _max_engagement = value; } }
         public double sample_distance {set { _sample_distance = value; } }
 
-        Point3F point(Point2F p2)
+        private Point3F point(Point2F p2)
         {
             return new Point3F(p2.X, p2.Y, 0);
         }
 
-        Point2F point(Point3F p3)
+        private Point2F point(Point3F p3)
         {
             return new Point2F(p3.X, p3.Y);
         }
 
-        enum st
+        private enum st
         {
             SEEKING_PASSABLE_START,
             SEEKING_UNPASSABLE_MIDDLE,
@@ -318,7 +348,7 @@ namespace Matmill
             FLUSHING_END,
         };
 
-        List<Point2F> sample_curve(Polyline p, double step)
+        private List<Point2F> sample_curve(Polyline p, double step)
         {
             List<Point2F> points = new List<Point2F>();
             foreach (Point3F pt in PointListUtils.CreatePointlistFromPolylineStep(p, step).Points.ToArray())
@@ -333,10 +363,8 @@ namespace Matmill
             return points;
         }
 
-        List<Line2F> get_mat_segments()
+        private List<Line2F> get_mat_segments()
         {
-            bool ANALIZE_INNER_INTERSECTIONS = false;
-
             List<Point2F> plist = new List<Point2F>();
 
             plist.AddRange(sample_curve(this._reg.OuterCurve, _cutter_r / 10));
@@ -404,7 +432,7 @@ namespace Matmill
             return inner_segments;
         }
 
-        double get_mic_radius(Point2F pt)
+        private double get_mic_radius(Point2F pt)
         {
             double radius = double.MaxValue;
             foreach(object item in _t4.Get_nearest_objects(pt.X, pt.Y))
@@ -427,7 +455,7 @@ namespace Matmill
             return radius;
         }
 
-        Slice find_prev_parental_slice(Branch start)
+        private Slice find_prev_parental_slice(Branch start)
         {
             for (Branch b = start.Parent; b != null; b = b.Parent)
             {
@@ -439,7 +467,7 @@ namespace Matmill
             return null;
         }
 
-        List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Circle2F ball)
+        private List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Circle2F ball)
         {
             List<Circle2F> result = new List<Circle2F>();
             foreach (Circle2F b in ballist)
@@ -452,7 +480,7 @@ namespace Matmill
             return result;
         }
 
-        List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Arc2F arc)
+        private List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Arc2F arc)
         {
             List<Circle2F> result = new List<Circle2F>();
             foreach (Circle2F b in ballist)
@@ -468,7 +496,7 @@ namespace Matmill
             return result;
         }
 
-        List<Arc2F> filter_inner_arcs(List<Circle2F> ballist, List<Arc2F> segments)
+        private List<Arc2F> filter_inner_arcs(List<Circle2F> ballist, List<Arc2F> segments)
         {
             List<Arc2F> result = new List<Arc2F>();
 
@@ -490,9 +518,9 @@ namespace Matmill
             return result;
         }
 
-        void roll(Branch branch, List<Slice> ready_slices, RotationDirection dir, double min_segment_length)
+        private void roll(Branch branch, List<Slice> ready_slices, RotationDirection dir, double min_segment_length)
         {
-            List <Point2F> samples = sample_curve(branch.Curve, _sample_distance / 2);
+            List <Point2F> samples = sample_curve(branch.Curve, _sample_distance);
 
             Slice prev_slice = null;
             Slice pending_slice = null;
@@ -536,7 +564,7 @@ namespace Matmill
                 // queue good candidate and continue
                 if (max_slice_engage < _max_engagement)
                 {
-                    pending_slice = new Slice(pt, radius, prev_slice);
+                    pending_slice = new Slice(pt, radius, prev_slice, _cutter_r);
                     continue;
                 }
 
@@ -573,7 +601,7 @@ namespace Matmill
         }
 
         //XXX: slices are for debug
-        List<Arc2F> segment_arc_by_balls(Arc2F basic, List<Circle2F> ballist, List<Entity> slices)
+        private List<Arc2F> segment_arc_by_balls(Arc2F basic, List<Circle2F> ballist, List<Entity> slices)
         {
             // split arc more to reduce air time
 
@@ -624,7 +652,7 @@ namespace Matmill
             return segments;
         }
 
-        void attach_segments(Branch me, Segpool pool)
+        private void attach_segments(Branch me, Segpool pool)
         {
             Point2F running_end = (Point2F)me.Curve.Points[me.Curve.Points.Count - 1].Point;
             List<Point2F> followers;
@@ -644,11 +672,9 @@ namespace Matmill
 
             foreach (Point2F pt in followers)
             {
-                Branch b = new Branch();
-                b.Curve = new Polyline();
+                Branch b = new Branch(me);
                 b.Curve.Add(point(running_end));
                 b.Curve.Add(point(pt));
-                b.Parent = me;
                 attach_segments(b, pool);
 
                 me.Children.Add(b);
@@ -657,7 +683,7 @@ namespace Matmill
             me.Children.Sort((a, b) => a.Deep_distance().CompareTo(b.Deep_distance()));
         }
 
-        Branch build_tree(List<Line2F> segments)
+        private Branch build_tree(List<Line2F> segments)
         {
             // determine the start segment - the one with the largest mic
             double largest_radius = double.MinValue;
@@ -691,8 +717,7 @@ namespace Matmill
             // XXX: startpoint may be undefined
 
             // craft new artifical start poly
-            Branch root = new Branch();
-            root.Curve = new Polyline();
+            Branch root = new Branch(null);
             root.Curve.Add(point(start_pt));
 
             Host.log("got {0} hashes", pool.N_hashes);
@@ -700,6 +725,32 @@ namespace Matmill
             attach_segments(root, pool);
 
             return root;
+        }
+
+        private void populate_t4(Polyline p)
+        {
+            for (int i = 0; i < p.NumSegments; i++)
+            {
+                object pi = p.GetSegment(i);    // would be Line2F or Arc2F
+                T4_rect rect;
+                if (pi is Line2F)
+                {
+                    Line2F line = ((Line2F)pi);
+                    rect = new T4_rect(Math.Min(line.p1.X, line.p2.X),
+                                       Math.Min(line.p1.Y, line.p2.Y),
+                                       Math.Max(line.p1.X, line.p2.X),
+                                       Math.Max(line.p1.Y, line.p2.Y));
+                }
+                else
+                {
+                    Point2F min = Point2F.Undefined;
+                    Point2F max = Point2F.Undefined;
+                    ((Arc2F)pi).GetExtrema(ref min, ref max);
+                    rect = new T4_rect(min.X, min.Y, max.X, max.Y);
+                }
+
+                _t4.Add(rect, pi);
+            }
         }
 
         public List<Entity> run()
@@ -743,39 +794,13 @@ namespace Matmill
                     foreach (Arc2F seg in s.Segments)
                     {
                         Arc arc = new Arc(seg);
-                        arc.Tag = String.Format("me: {0}, so: {1}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
+                        arc.Tag = String.Format("me {0:F4}, so {1:F4}, mrr {2:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2), s.Mrr);
                         path.Add(arc);
                     }
                 }
             }
 
             return path;
-        }
-
-        void populate_t4(Polyline p)
-        {
-            for (int i = 0; i < p.NumSegments; i++)
-            {
-                object pi = p.GetSegment(i);    // would be Line2F or Arc2F
-                T4_rect rect;
-                if (pi is Line2F)
-                {
-                    Line2F line = ((Line2F)pi);
-                    rect = new T4_rect(Math.Min(line.p1.X, line.p2.X),
-                                       Math.Min(line.p1.Y, line.p2.Y),
-                                       Math.Max(line.p1.X, line.p2.X),
-                                       Math.Max(line.p1.Y, line.p2.Y));
-                }
-                else
-                {
-                    Point2F min = Point2F.Undefined;
-                    Point2F max = Point2F.Undefined;
-                    ((Arc2F)pi).GetExtrema(ref min, ref max);
-                    rect = new T4_rect(min.X, min.Y, max.X, max.Y);
-                }
-
-                _t4.Add(rect, pi);
-            }
         }
 
         public void Debug_t4()
@@ -914,4 +939,3 @@ namespace Matmill
 //            }
 //            return slices;
 //        }
-

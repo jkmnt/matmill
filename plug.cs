@@ -50,7 +50,7 @@ namespace Matmill
                         if (ret == null) return;
                         double sample_distance = Math.Abs((double)ret);
             */
-            double sample_distance = max_engagement / 10.0;
+            double sample_distance = max_engagement / 10.0 / 2;
             //double sample_distance = cutter_d / 10.0;
 
             Host.log("hello");

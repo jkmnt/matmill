@@ -70,7 +70,7 @@ namespace Tree4
 
     public class T4
     {
-        internal struct T4_occupant
+        private struct T4_occupant
         {
             public T4_rect Rect;
             public object Obj;
@@ -82,13 +82,13 @@ namespace Tree4
             }
         }
 
-        static int MAX_OCCUPANTS = 8;
+        public const int MAX_OCCUPANTS = 8;
 
-        T4[] _rooms;
-        T4_rect _rect;
-        List<T4_occupant> _occupants = new List<T4_occupant>();
+        private T4[] _rooms;
+        private T4_rect _rect;
+        private List<T4_occupant> _occupants = new List<T4_occupant>();
 
-        void split()
+        private void split()
         {
             double mid_x = _rect.Xc;
             double mid_y = _rect.Yc;
@@ -107,7 +107,7 @@ namespace Tree4
             _rooms[3] = new T4(new T4_rect(_rect.Xmin, _rect.Yc, _rect.Xc, _rect.Ymax));
         }
 
-        int choose_room(T4_occupant occupant)
+        private int choose_room(T4_occupant occupant)
         {
             bool is_bottom_quads = occupant.Rect.Ymin > _rect.Ymin && occupant.Rect.Ymax < _rect.Yc;
             bool is_top_quads = occupant.Rect.Ymin > _rect.Yc && occupant.Rect.Ymax < _rect.Ymax;
@@ -124,7 +124,7 @@ namespace Tree4
             return is_right_quads ? 2 : 3;
         }
 
-        void relocate()
+        private void relocate()
         {
             if (_rooms == null)
                 split();
@@ -142,7 +142,7 @@ namespace Tree4
             }
         }
 
-        void add(T4_occupant occupant)
+        private void add(T4_occupant occupant)
         {
             if (_rooms != null)
             {
@@ -182,7 +182,7 @@ namespace Tree4
             return result;
         }
 
-        List<T4_occupant> get_internal_occupants(double x, double y, ref double max_squared_dist)
+        private List<T4_occupant> get_internal_occupants(double x, double y, ref double max_squared_dist)
         {
             List<T4_occupant> result = new List<T4_occupant>();
 
@@ -215,10 +215,11 @@ namespace Tree4
             }
 
             // if there are some objects inside the room, check distance to them
-            foreach(T4_occupant occupant in _occupants)
+            foreach (T4_occupant occupant in _occupants)
             {
                 double min = occupant.Rect.Min_squared_outside_distance_to_pt(x, y);
-                if (min > max_squared_dist) continue;   // not in touch
+                if (min > max_squared_dist)
+                    continue;   // not in touch
 
                 result.Add(occupant);
 
@@ -230,7 +231,7 @@ namespace Tree4
             return result;
         }
 
-        List<T4_occupant> get_nearest_occupants(double x, double y)
+        private List<T4_occupant> get_nearest_occupants(double x, double y)
         {
             double max_squared_dist = _rect.H * _rect.H + _rect.W * _rect.W;
             List<T4_occupant> occupants = get_internal_occupants(x, y, ref max_squared_dist);
