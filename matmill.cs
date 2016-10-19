@@ -524,6 +524,7 @@ namespace Matmill
 
             Slice prev_slice = null;
             Slice pending_slice = null;
+            int pending_slice_index = 0;
 
             int i = 0;
 
@@ -564,7 +565,12 @@ namespace Matmill
                 // queue good candidate and continue
                 if (max_slice_engage < _max_engagement)
                 {
-                    pending_slice = new Slice(pt, radius, prev_slice, _cutter_r);
+                    Slice s = new Slice(pt, radius, prev_slice, _cutter_r);
+                    if (pending_slice == null || s.Mrr > pending_slice.Mrr)
+                    {
+                        pending_slice = s;
+                        pending_slice_index = i;
+                    }
                     continue;
                 }
 
@@ -589,10 +595,13 @@ namespace Matmill
                 ready_slices.Add(pending_slice);
                 prev_slice = pending_slice;
                 pending_slice = null;
+                i = pending_slice_index;    // trace again
             }
+            
 
             //if ((branch.Is_leaf || branch.Slices.Count == 0) && pending_slice != null)
-            if (pending_slice != null)
+            //if (pending_slice != null)
+            if (branch.Is_leaf && pending_slice != null)            
             {
                 pending_slice.Finalize(prev_slice, dir);
                 branch.Slices.Add(pending_slice);
