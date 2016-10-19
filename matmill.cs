@@ -11,56 +11,6 @@ using Voronoi2;
 
 namespace Matmill
 {
-    class Branch
-    {
-        public readonly Polyline Curve = new Polyline();
-        public readonly Branch Parent = null;
-        public readonly List<Branch> Children = new List<Branch>();
-        public readonly List<Slice> Slices = new List<Slice>();
-        public string Debug = "";
-
-        public bool Is_leaf { get { return Children.Count == 0; } }
-
-        private double _deep_distance = 0;
-
-        public List<Branch> Df_traverse()  //
-        {
-            List<Branch> result = new List<Branch>();
-            result.Add(this);
-            foreach (Branch b in Children)
-                result.AddRange(b.Df_traverse());
-            return result;
-        }
-
-        // NOTE: deep distance is memoized, so this should be called only on finalized branch
-        public double Deep_distance()
-        {
-            if (_deep_distance != 0)
-                return _deep_distance;
-
-            _deep_distance = Curve.GetPerimeter();
-            foreach (Branch b in Children)
-                _deep_distance += b.Deep_distance();
-
-            return _deep_distance;
-        }
-
-        public List<Branch> Get_parents()
-        {
-            List<Branch> parents = new List<Branch>();
-            for (Branch p = Parent; p != null; p = p.Parent)
-            {
-                parents.Add(p);
-            }
-            return parents;
-        }
-
-        public Branch(Branch parent)
-        {
-            Parent = parent;
-        }
-    }
-
     class Slice
     {
         private readonly Circle2F _ball;
@@ -92,6 +42,9 @@ namespace Matmill
             double d = center.DistanceTo(prev_slice.Center);
             double R = prev_slice.Radius + cutter_r;
             double r = radius + cutter_r;
+
+            //XXX: no lens in this case, return 0.
+            if (d == 0) return 0;
 
             double A_lens =    r * r * Math.Acos((d*d + r*r - R*R) / 2.0 / d / r)
                              + R * R * Math.Acos((d*d + R*R - r*r) / 2.0 / d / R)
@@ -149,6 +102,72 @@ namespace Matmill
             _segments.Add(arc0);
             _segments.Add(arc1);
             _segments.Add(arc2);
+        }
+    }
+
+    class Branch
+    {
+        public readonly Polyline Curve = new Polyline();
+        public readonly Branch Parent = null;
+        public readonly List<Branch> Children = new List<Branch>();
+        public readonly List<Slice> Slices = new List<Slice>();
+        public string Debug = "";
+
+        public bool Is_leaf { get { return Children.Count == 0; } }
+
+        private double _deep_distance = 0;
+
+        public List<Branch> Df_traverse()  //
+        {
+            List<Branch> result = new List<Branch>();
+            result.Add(this);
+            foreach (Branch b in Children)
+                result.AddRange(b.Df_traverse());
+            return result;
+        }
+
+        // NOTE: deep distance is memoized, so this should be called only on finalized branch
+        public double Deep_distance()
+        {
+            if (_deep_distance != 0)
+                return _deep_distance;
+
+            _deep_distance = Curve.GetPerimeter();
+            foreach (Branch b in Children)
+                _deep_distance += b.Deep_distance();
+
+            return _deep_distance;
+        }
+
+        public List<Branch> Get_parents()
+        {
+            List<Branch> parents = new List<Branch>();
+            for (Branch p = Parent; p != null; p = p.Parent)
+            {
+                parents.Add(p);
+            }
+            return parents;
+        }
+
+        public List<Slice> Get_first_postsplit_slices()
+        {
+            List<Slice> candidates = new List<Slice>();
+
+            if (Slices.Count != 0)
+            {
+                candidates.Add(Slices[0]);
+            }
+            else
+            {
+                foreach(Branch c in Children)
+                    candidates.AddRange(c.Get_first_postsplit_slices());
+            }
+            return candidates;
+        }
+
+        public Branch(Branch parent)
+        {
+            Parent = parent;
         }
     }
 
@@ -353,12 +372,28 @@ namespace Matmill
             List<Point2F> points = new List<Point2F>();
             foreach (Point3F pt in PointListUtils.CreatePointlistFromPolylineStep(p, step).Points.ToArray())
                 points.Add((Point2F) pt);
-            if (points.Count < 2) return points;
-            // sometimes first and last points would be too close to each other for the closed shapes, remove dupe
-            if (Point2F.Distance(points[0], points[points.Count - 1]) < GENERAL_TOLERANCE * 4)
+
+            int lastidx = points.Count - 1;
+
+            if (p.Closed)
             {
-                Host.log("removing duplicate point from pointlist");
-                points.RemoveAt(points.Count - 1);
+                if (lastidx < 1)
+                    return points;
+                // sometimes first and last points would be too close to each other for the closed shapes, remove dupe
+                if (Point2F.Distance(points[0], points[lastidx]) < GENERAL_TOLERANCE * 4)
+                {
+                    Host.log("removing duplicate point from pointlist");
+                    points.RemoveAt(lastidx);
+                }
+            }
+            else
+            {
+                Point2F lastpt = point(p.Points[p.Points.Count - 1].Point);
+                if (! Point2F.Match(points[lastidx], lastpt))
+                {
+                    Host.log("adding endpoint to pointlist");
+                    points.Add(lastpt);
+                }
             }
             return points;
         }
@@ -455,7 +490,28 @@ namespace Matmill
             return radius;
         }
 
-        private Slice find_prev_parental_slice(Branch start)
+        private List<Slice> find_prev_slices(Branch start)
+        {
+            List<Slice> candidates = new List<Slice>();
+
+            // good candidates for prev slice is the last slice of parent
+            // and first slices his childs
+            // parent may be too short and have no slices, but childs has
+            // stop as soon as something is detected
+
+            for (Branch b = start.Parent; candidates.Count == 0 && b != null; b = b.Parent)
+            {
+                if (b.Slices.Count != 0)
+                    candidates.Add(b.Slices[b.Slices.Count - 1]);
+
+                foreach (Branch c in b.Children)
+                    candidates.AddRange(c.Get_first_postsplit_slices());
+            }
+
+            return candidates;
+        }
+
+        private Slice find_prev_slice(Branch start)
         {
             for (Branch b = start.Parent; b != null; b = b.Parent)
             {
@@ -463,7 +519,6 @@ namespace Matmill
                     return b.Slices[b.Slices.Count - 1];
             }
 
-            // XXX: add assert here
             return null;
         }
 
@@ -522,6 +577,14 @@ namespace Matmill
         {
             List <Point2F> samples = sample_curve(branch.Curve, _sample_distance);
 
+            // calculate mics once to prevent expensive recalculations
+            double[] mics = new double[samples.Count];
+
+            for (int mic_idx = 0; mic_idx < samples.Count; mic_idx++)
+            {
+                mics[mic_idx] = get_mic_radius(samples[mic_idx]);
+            }
+
             Slice prev_slice = null;
             Slice pending_slice = null;
             int pending_slice_index = 0;
@@ -531,14 +594,85 @@ namespace Matmill
             // initial slice
             if (branch.Parent != null)
             {
-                prev_slice = find_prev_parental_slice(branch);
+                Point2F pt = samples[0];
+                double radius = mics[0];
+
+                double max_mrr = double.MinValue;
+                double max_engagement = double.MinValue;
+
+                double min_mrr = double.MaxValue;
+                double min_dist = double.MaxValue;
+                double min_engagement = double.MaxValue;
+
+                List<Slice> candidates = find_prev_slices(branch);
+                foreach (Slice candidate in candidates)
+                {
+                    double max_slice_engage = Slice.Calc_max_engagement(pt, radius, candidate);
+                    if (max_slice_engage > _max_engagement) continue;
+
+                    double mrr = Slice.Calc_mrr(pt, radius, candidate, _cutter_r);
+                    double dist = pt.DistanceTo(candidate.Center);
+
+                    const int algo = 3;
+
+                    switch (algo)
+                    {
+                    case 0:
+                        if (prev_slice == null ||  mrr < min_mrr)
+                        {
+                            min_mrr = mrr;
+                            prev_slice = candidate;
+                        }
+                        break;
+
+                    case 1:
+                        if (prev_slice == null || mrr > max_mrr)
+                        {
+                            max_mrr = mrr;
+                            prev_slice = candidate;
+                        }
+                        break;
+
+                    case 2:
+                        if (prev_slice == null || dist < min_dist)
+                        {
+                            min_dist = dist;
+                            prev_slice = candidate;
+                        }
+                        break;
+
+                    case 3:
+                        if (prev_slice == null || max_slice_engage < min_engagement)
+                        {
+                            min_engagement = max_slice_engage;
+                            prev_slice = candidate;
+                        }
+                        break;
+
+                    case 4:
+                        if (prev_slice == null || max_slice_engage > max_engagement)
+                        {
+                            max_engagement = max_slice_engage;
+                            prev_slice = candidate;
+                        }
+                        break;
+                    }
+                }
+
+//              prev_slice = find_prev_slice(branch);
+
+                if (prev_slice == null)
+                {
+                    Host.log("Failed to attach branch");
+                    return;
+                }
             }
             else
             {
                 // top branch should always had a big circle at pt[0] !
                 //XXX: verify it !
                 Point2F pt = samples[0];
-                double radius = get_mic_radius(pt);
+                double radius = mics[0];
 
                 Slice s = new Slice(pt, radius, dir);
                 branch.Slices.Add(s);
@@ -551,19 +685,15 @@ namespace Matmill
             for (; i < samples.Count; i++)
             {
                 Point2F pt = samples[i];
-                double radius = get_mic_radius(pt);
+                double radius = mics[i];
 
                 if (radius < _cutter_r)
                     continue;
 
                 double max_slice_engage = Slice.Calc_max_engagement(pt, radius, prev_slice);
 
-                // discard extra thin slices
-                if (max_slice_engage < GENERAL_TOLERANCE)
-                    continue;
-
                 // queue good candidate and continue
-                if (max_slice_engage < _max_engagement)
+                if (max_slice_engage <= _max_engagement)
                 {
                     Slice s = new Slice(pt, radius, prev_slice, _cutter_r);
                     if (pending_slice == null || s.Mrr > pending_slice.Mrr)
@@ -597,11 +727,12 @@ namespace Matmill
                 pending_slice = null;
                 i = pending_slice_index;    // trace again
             }
-            
+
 
             //if ((branch.Is_leaf || branch.Slices.Count == 0) && pending_slice != null)
             //if (pending_slice != null)
-            if (branch.Is_leaf && pending_slice != null)            
+            if (branch.Is_leaf && pending_slice != null && pending_slice.Max_engagement > GENERAL_TOLERANCE)
+            //if (false)
             {
                 pending_slice.Finalize(prev_slice, dir);
                 branch.Slices.Add(pending_slice);
@@ -797,7 +928,8 @@ namespace Matmill
                 Entity p = b.Curve.Clone();
                 p.Tag = b.Get_parents().Count.ToString();
                 p.Tag += b.Debug;
-                CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(p);
+                //CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(p);
+                path.Add(p);
                 foreach (Slice s in b.Slices)
                 {
                     foreach (Arc2F seg in s.Segments)
