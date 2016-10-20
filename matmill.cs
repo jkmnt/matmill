@@ -402,32 +402,17 @@ namespace Matmill
 
         private List<Point2F> sample_curve(Polyline p, double step)
         {
+            // divide curve evenly. There is a bug in CamBam's divide by step routine (duplicate points), while 'divide to n equal segments' should work ok.
+            // execution speed may be worse, but who cares
+
+            double length = p.GetPerimeter();
+            int nsegs = (int)Math.Max(Math.Ceiling(length / step), 1);
+
             List<Point2F> points = new List<Point2F>();
-            foreach (Point3F pt in PointListUtils.CreatePointlistFromPolylineStep(p, step).Points.ToArray())
+
+            foreach (Point3F pt in PointListUtils.CreatePointlistFromPolyline(p, nsegs).Points)
                 points.Add((Point2F) pt);
 
-            int lastidx = points.Count - 1;
-
-            if (p.Closed)
-            {
-                if (lastidx < 1)
-                    return points;
-                // sometimes first and last points would be too close to each other for the closed shapes, remove dupe
-                if (Point2F.Distance(points[0], points[lastidx]) < GENERAL_TOLERANCE * 4)
-                {
-                    Host.log("removing duplicate point from pointlist");
-                    points.RemoveAt(lastidx);
-                }
-            }
-            else
-            {
-                Point2F lastpt = point(p.Points[p.Points.Count - 1].Point);
-                if (! Point2F.Match(points[lastidx], lastpt))
-                {
-                    Host.log("adding endpoint to pointlist");
-                    points.Add(lastpt);
-                }
-            }
             return points;
         }
 
@@ -449,15 +434,41 @@ namespace Matmill
             double min_y = double.MaxValue;
             double max_y = double.MinValue;
 
+            // HACK
+            // There is a bug in Voronoi generator implementation. Sometimes it produces a completely crazy partitioning.
+            // Looks like its overly sensitive to the first processed points, their count and location. If first stages
+            // go ok, then everything comes nice. Beeing a Steven Fortune's algorithm, it process points by a moving sweep line.
+            // Looks like the line is moving from the bottom to the top, thus sensitive points are the most bottom ones.
+            // We try to cheat and move one of the most bottom points (there may be a lot, e.g. for rectange) a little
+            // lower. Then generator initially will see just one point, do a right magic and continue with a sane result :-)
+            // Let's always move a leftmost bottom point to be distinct.
+
+            int hackpoint_idx = 0;
+
             for (int i = 0; i < plist.Count; i++)
             {
                 xs[i] = plist[i].X;
                 ys[i] = plist[i].Y;
                 if (xs[i] < min_x) min_x = xs[i];
                 if (xs[i] > max_x) max_x = xs[i];
-                if (ys[i] < min_y) min_y = ys[i];
                 if (ys[i] > max_y) max_y = ys[i];
+
+                if (ys[i] <= min_y)
+                {
+                    if (ys[i] < min_y)
+                    {
+                        min_y = ys[i];
+                        hackpoint_idx = i;  // stricly less, it's a new hackpoint for sure
+                    }
+                    else
+                    {
+                        if (xs[i] < xs[hackpoint_idx])  // it's a new hackpoint if more lefty
+                            hackpoint_idx = i;
+                    }
+                }
             }
+
+            ys[hackpoint_idx] -= GENERAL_TOLERANCE;
 
             min_x -= VORONOI_MARGIN;
             max_x += VORONOI_MARGIN;
