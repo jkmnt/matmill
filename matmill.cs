@@ -365,11 +365,30 @@ namespace Matmill
         }
     }
 
-    public class Pocket_generator
+    enum prev_slice_algo
+    {
+        MIN_MRR,
+        MAX_MRR,
+        MIN_DIST,
+        MAX_DIST,
+        MIN_ENGAGE,
+        MAX_ENGAGE
+    };
+
+    enum roll_algo
+    {
+        MAXIMIZE_ENGAGEMENT,
+        MAXIMIZE_MRR,
+    };
+
+    class Pocket_generator
     {
         private const double GENERAL_TOLERANCE = 0.001;
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
+
+        private const prev_slice_algo PREV_SLICE_ALGO = prev_slice_algo.MIN_ENGAGE;
+        private const roll_algo ROLL_ALGO = roll_algo.MAXIMIZE_ENGAGEMENT;
 
         private readonly Region _reg;
         private readonly T4 _t4;
@@ -534,74 +553,84 @@ namespace Matmill
             return radius;
         }
 
-        private List<Slice> find_prev_slices(Branch start)
+        private Slice find_prev_slice(Branch branch, Point2F pt, double radius, prev_slice_algo algo)
         {
-            return start.Get_upstream_roadblocks();
-        }
+            Slice prev_slice = null;
 
-        private Slice find_prev_slice(Branch start)
-        {
-            for (Branch b = start.Parent; b != null; b = b.Parent)
+            double max_mrr = double.MinValue;
+            double max_dist = double.MinValue;
+            double max_engage = double.MinValue;
+
+            double min_mrr = double.MaxValue;
+            double min_dist = double.MaxValue;
+            double min_engage = double.MaxValue;
+
+            List<Slice> candidates = branch.Get_upstream_roadblocks();
+            foreach (Slice candidate in candidates)
             {
-                if (b.Slices.Count != 0)
-                    return b.Slices[b.Slices.Count - 1];
-            }
-
-            return null;
-        }
-
-        private List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Circle2F ball)
-        {
-            List<Circle2F> result = new List<Circle2F>();
-            foreach (Circle2F b in ballist)
-            {
-                double dist = Point2F.Distance(b.Center, ball.Center);
-                if (b.Radius + ball.Radius <= dist + GENERAL_TOLERANCE)
+                double slice_engage = Slice.Calc_max_engagement(pt, radius, candidate);
+                if (slice_engage > _max_engagement)
                     continue;
-                result.Add(b);
-            }
-            return result;
-        }
 
-        private List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Arc2F arc)
-        {
-            List<Circle2F> result = new List<Circle2F>();
-            foreach (Circle2F b in ballist)
-            {
-                double dist = Point2F.Distance(b.Center, arc.Center);
-                if (b.Radius + arc.Radius <= dist + GENERAL_TOLERANCE)
-                    continue;
-                Line2F splitline = arc.CircleIntersect(b);
-                if (splitline.p1.IsUndefined && splitline.p2.IsUndefined)
-                    continue;
-                result.Add(b);
-            }
-            return result;
-        }
+                double mrr = Slice.Calc_mrr(pt, radius, candidate, _cutter_r);
+                double dist = pt.DistanceTo(candidate.Center);
 
-        private List<Arc2F> filter_inner_arcs(List<Circle2F> ballist, List<Arc2F> segments)
-        {
-            List<Arc2F> result = new List<Arc2F>();
-
-            foreach (Arc2F seg in segments)
-            {
-                bool is_inner = false;
-                foreach (Circle2F ball in ballist)
+                switch (algo)
                 {
-                    // XXX: crude, but will work in most cases
-                    if (Point2F.Distance(ball.Center, seg.Midpoint) < ball.Radius)
-                    {
-                        is_inner = true;
+                    case prev_slice_algo.MIN_MRR:
+                        if (prev_slice == null || mrr < min_mrr)
+                        {
+                            min_mrr = mrr;
+                            prev_slice = candidate;
+                        }
                         break;
-                    }
+
+                    case prev_slice_algo.MAX_MRR:
+                        if (prev_slice == null || mrr > max_mrr)
+                        {
+                            max_mrr = mrr;
+                            prev_slice = candidate;
+                        }
+                        break;
+
+                    case prev_slice_algo.MIN_DIST:
+                        if (prev_slice == null || dist < min_dist)
+                        {
+                            min_dist = dist;
+                            prev_slice = candidate;
+                        }
+                        break;
+
+                    case prev_slice_algo.MAX_DIST:
+                        if (prev_slice == null || dist > max_dist)
+                        {
+                            max_dist = dist;
+                            prev_slice = candidate;
+                        }
+                        break;
+
+                    case prev_slice_algo.MIN_ENGAGE:
+                        if (prev_slice == null || slice_engage < min_engage)
+                        {
+                            min_engage = slice_engage;
+                            prev_slice = candidate;
+                        }
+                        break;
+
+                    case prev_slice_algo.MAX_ENGAGE:
+                        if (prev_slice == null || slice_engage > max_engage)
+                        {
+                            max_engage = slice_engage;
+                            prev_slice = candidate;
+                        }
+                        break;
                 }
-                if (! is_inner)
-                    result.Add(seg);
             }
-            return result;
+
+            return prev_slice;
         }
 
-        private void roll(Branch branch, List<Slice> ready_slices, RotationDirection dir, double min_segment_length)
+        private void roll(Branch branch, List<Slice> ready_slices, RotationDirection dir)
         {
             List <Point2F> samples = sample_curve(branch.Curve, _sample_distance);
 
@@ -622,72 +651,7 @@ namespace Matmill
             // initial slice
             if (branch.Parent != null)
             {
-                Point2F pt = samples[0];
-                double radius = mics[0];
-
-                double max_mrr = double.MinValue;
-                double max_engagement = double.MinValue;
-
-                double min_mrr = double.MaxValue;
-                double min_dist = double.MaxValue;
-                double min_engagement = double.MaxValue;
-
-                List<Slice> candidates = find_prev_slices(branch);
-                foreach (Slice candidate in candidates)
-                {
-                    double max_slice_engage = Slice.Calc_max_engagement(pt, radius, candidate);
-                    if (max_slice_engage > _max_engagement) continue;
-
-                    double mrr = Slice.Calc_mrr(pt, radius, candidate, _cutter_r);
-                    double dist = pt.DistanceTo(candidate.Center);
-
-                    const int algo = 3;
-
-                    switch (algo)
-                    {
-                    case 0:
-                        if (prev_slice == null ||  mrr < min_mrr)
-                        {
-                            min_mrr = mrr;
-                            prev_slice = candidate;
-                        }
-                        break;
-
-                    case 1:
-                        if (prev_slice == null || mrr > max_mrr)
-                        {
-                            max_mrr = mrr;
-                            prev_slice = candidate;
-                        }
-                        break;
-
-                    case 2:
-                        if (prev_slice == null || dist < min_dist)
-                        {
-                            min_dist = dist;
-                            prev_slice = candidate;
-                        }
-                        break;
-
-                    case 3:
-                        if (prev_slice == null || max_slice_engage < min_engagement)
-                        {
-                            min_engagement = max_slice_engage;
-                            prev_slice = candidate;
-                        }
-                        break;
-
-                    case 4:
-                        if (prev_slice == null || max_slice_engage > max_engagement)
-                        {
-                            max_engagement = max_slice_engage;
-                            prev_slice = candidate;
-                        }
-                        break;
-                    }
-                }
-
-//              prev_slice = find_prev_slice(branch);
+                prev_slice = find_prev_slice(branch, samples[0], mics[0], PREV_SLICE_ALGO);
 
                 if (prev_slice == null)
                 {
@@ -724,7 +688,27 @@ namespace Matmill
                 if (max_slice_engage <= _max_engagement)
                 {
                     Slice s = new Slice(pt, radius, prev_slice, _cutter_r);
-                    if (pending_slice == null || s.Mrr > pending_slice.Mrr)
+                    bool choose_it  = false;
+
+                    if (pending_slice == null)
+                    {
+                        choose_it = true;
+                    }
+                    else
+                    {
+                        if (ROLL_ALGO == roll_algo.MAXIMIZE_ENGAGEMENT)
+                        {
+                            if (max_slice_engage >= pending_slice.Max_engagement)
+                                choose_it = true;
+                        }
+                        else if (ROLL_ALGO == roll_algo.MAXIMIZE_MRR)
+                        {
+                            if (s.Mrr >= pending_slice.Mrr)
+                                choose_it = true;
+                        }
+                    }
+
+                    if (choose_it)
                     {
                         pending_slice = s;
                         pending_slice_index = i;
@@ -735,15 +719,14 @@ namespace Matmill
                 // max engagement overshoot, time to dequeue candidate
                 if (pending_slice == null)
                 {
-                    // XXX: will fail here
-                    Host.log("nothing is pending !");
+                    Host.log("No pending slice before stepover overshoot. Stopping slicing the branch.");
                     return;
                 }
 
                 pending_slice.Finalize(prev_slice, dir);
                 if (pending_slice.Segments.Count == 0)
                 {
-                    Host.log("Undefined intersection (can't pass thru slot ?). Stopping slicing the branch.");
+                    Host.log("Can't connect slice to previous (can't pass thru slot ?). Stopping slicing the branch.");
                     // XXX: should emit last possible slice before unmillable area
                     // now it is not and crudely aborted
                     return;
@@ -860,7 +843,7 @@ namespace Matmill
             Segpool pool = new Segpool(segments.Count, GENERAL_TOLERANCE);
 
             // XXX: p2 is not analyzed
-            Host.log("analizing segments");
+            Host.log("analyzing segments");
             foreach (Line2F line in segments)
             {
                 double r = get_mic_radius(line.p1);
@@ -880,16 +863,14 @@ namespace Matmill
 
                 pool.Add(line);
             }
-            Host.log("done analizing segments");
+            Host.log("done analyzing segments");
+            Host.log("got {0} hashes", pool.N_hashes);
 
-            // XXX: startpoint may be undefined
+            // XXX: startpoint may be undefined, fix it later
 
             // craft new artifical start poly
             Branch root = new Branch(null);
             root.Curve.Add(point(start_pt));
-
-            Host.log("got {0} hashes", pool.N_hashes);
-
             attach_segments(root, pool);
 
             return root;
@@ -935,24 +916,19 @@ namespace Matmill
             List<Branch> traverse = root.Df_traverse();
 
 //          foreach (Branch b in traverse)
-//          {
 //              CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(b.Curve);
-//          }
-//
-//          return new List<Entity>();
 
             List<Slice> ready_slices = new List<Slice>();
 
             foreach (Branch b in traverse)
             {
-                roll(b, ready_slices, RotationDirection.CCW, _max_engagement / 2);
+                roll(b, ready_slices, RotationDirection.CCW);
             }
 
             List<Entity> path = new List<Entity>();
             foreach (Branch b in traverse)
             {
                 // XXX: for debug
-                //path.Add(b.Curve.Clone());
                 Entity p = b.Curve.Clone();
                 p.Tag = b.Get_parents().Count.ToString();
                 p.Tag += b.Debug;
@@ -997,6 +973,58 @@ namespace Matmill
     }
 }
 
+// --- unused stuff
+
+//private List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Circle2F ball)
+//{
+//    List<Circle2F> result = new List<Circle2F>();
+//    foreach (Circle2F b in ballist)
+//    {
+//        double dist = Point2F.Distance(b.Center, ball.Center);
+//        if (b.Radius + ball.Radius <= dist + GENERAL_TOLERANCE)
+//            continue;
+//        result.Add(b);
+//    }
+//    return result;
+//}
+//
+//private List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Arc2F arc)
+//{
+//    List<Circle2F> result = new List<Circle2F>();
+//    foreach (Circle2F b in ballist)
+//    {
+//        double dist = Point2F.Distance(b.Center, arc.Center);
+//        if (b.Radius + arc.Radius <= dist + GENERAL_TOLERANCE)
+//            continue;
+//        Line2F splitline = arc.CircleIntersect(b);
+//        if (splitline.p1.IsUndefined && splitline.p2.IsUndefined)
+//            continue;
+//        result.Add(b);
+//    }
+//    return result;
+//}
+//
+//private List<Arc2F> filter_inner_arcs(List<Circle2F> ballist, List<Arc2F> segments)
+//{
+//    List<Arc2F> result = new List<Arc2F>();
+//
+//    foreach (Arc2F seg in segments)
+//    {
+//        bool is_inner = false;
+//        foreach (Circle2F ball in ballist)
+//        {
+//            // XXX: crude, but will work in most cases
+//            if (Point2F.Distance(ball.Center, seg.Midpoint) < ball.Radius)
+//            {
+//                is_inner = true;
+//                break;
+//            }
+//        }
+//        if (!is_inner)
+//            result.Add(seg);
+//    }
+//    return result;
+//}
 //        List<Entity> get_path(Branch branch, List<Circle2F> ballist, bool is_cw, double min_segment_length)
 //        {
 //            List<Entity> slices = new List<Entity>();

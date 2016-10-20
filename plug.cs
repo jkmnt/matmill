@@ -8,7 +8,7 @@ using CamBam.CAD;
 
 namespace Matmill
 {
-    public class Host
+    class Host
     {
         static public void log(string s, params object[] args)
         {
@@ -153,9 +153,12 @@ namespace Matmill
             popup.Click += popup_handler;
             ui.Menus.mnuPlugins.DropDownItems.Add(popup);
 
-            ToolStripMenuItem popup2 = new ToolStripMenuItem("MAT debug");
-            popup2.Click += debug_handler;
-            ui.Menus.mnuPlugins.DropDownItems.Add(popup2);
+            if (false)
+            { 
+                ToolStripMenuItem popup2 = new ToolStripMenuItem("MAT debug");
+                popup2.Click += debug_handler;
+                ui.Menus.mnuPlugins.DropDownItems.Add(popup2);
+            }
         }
     }
 }
