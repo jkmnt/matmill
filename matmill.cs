@@ -149,7 +149,39 @@ namespace Matmill
             return parents;
         }
 
-        public List<Slice> Get_first_postsplit_slices()
+        // Get all the slices blocking path (meet first) while traveling up the branch
+        // (and followind neighbour downstream subbranches)
+        public List<Slice> Get_upstream_roadblocks()
+        {
+            List<Slice> candidates = new List<Slice>();
+
+            for (Branch visited = this; visited.Parent != null; visited = visited.Parent)
+            {
+                Branch upstream = visited.Parent;
+
+                if (upstream.Children.Count != 0)
+                {
+                    foreach (Branch child in upstream.Children)
+                    {
+                        // except the path we're walking now
+                        if (child != visited)
+                            candidates.AddRange(child.Get_downstream_roadblocks());
+                    }
+                }
+
+                if (upstream.Slices.Count != 0)
+                {
+                    candidates.Add(upstream.Slices[upstream.Slices.Count - 1]);
+                    break;
+                }
+            }
+
+            return candidates;
+        }
+
+        // Get all the slices blocking path (meet first) while traveling down the branch
+        // and next subbranches
+        public List<Slice> Get_downstream_roadblocks()
         {
             List<Slice> candidates = new List<Slice>();
 
@@ -159,9 +191,10 @@ namespace Matmill
             }
             else
             {
-                foreach(Branch c in Children)
-                    candidates.AddRange(c.Get_first_postsplit_slices());
+                foreach (Branch c in Children)
+                    candidates.AddRange(c.Get_downstream_roadblocks());
             }
+
             return candidates;
         }
 
@@ -492,23 +525,7 @@ namespace Matmill
 
         private List<Slice> find_prev_slices(Branch start)
         {
-            List<Slice> candidates = new List<Slice>();
-
-            // good candidates for prev slice is the last slice of parent
-            // and first slices his childs
-            // parent may be too short and have no slices, but childs has
-            // stop as soon as something is detected
-
-            for (Branch b = start.Parent; candidates.Count == 0 && b != null; b = b.Parent)
-            {
-                if (b.Slices.Count != 0)
-                    candidates.Add(b.Slices[b.Slices.Count - 1]);
-
-                foreach (Branch c in b.Children)
-                    candidates.AddRange(c.Get_first_postsplit_slices());
-            }
-
-            return candidates;
+            return start.Get_upstream_roadblocks();
         }
 
         private Slice find_prev_slice(Branch start)
@@ -731,8 +748,8 @@ namespace Matmill
 
             //if ((branch.Is_leaf || branch.Slices.Count == 0) && pending_slice != null)
             //if (pending_slice != null)
-            if (branch.Is_leaf && pending_slice != null && pending_slice.Max_engagement > GENERAL_TOLERANCE)
-            //if (false)
+            //if (branch.Is_leaf && pending_slice != null && pending_slice.Max_engagement > GENERAL_TOLERANCE)
+            if (false)
             {
                 pending_slice.Finalize(prev_slice, dir);
                 branch.Slices.Add(pending_slice);
