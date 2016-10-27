@@ -59,6 +59,16 @@ namespace Tree4
             return Math.Sqrt(Min_squared_outside_distance_to_pt(x, y));
         }
 
+        // maybe it's wrong. gotta check
+        public bool Is_intersects_with(T4_rect he)
+        {
+            if (this.Xmax < he.Xmin) return false;
+            if (this.Xmin > he.Xmax) return false;
+            if (this.Ymax < he.Ymin) return false;
+            if (this.Ymin > he.Ymax) return false;
+            return true;
+        }
+
         public T4_rect(double xmin, double ymin, double xmax, double ymax)
         {
             this.Xmin = xmin;
@@ -82,11 +92,13 @@ namespace Tree4
             }
         }
 
-        public const int MAX_OCCUPANTS = 8;
+        private const int MAX_OCCUPANTS = 8;
 
         private T4[] _rooms;
         private T4_rect _rect;
         private List<T4_occupant> _occupants = new List<T4_occupant>();
+
+        public T4_rect Rect { get { return _rect; }}
 
         private void split()
         {
@@ -256,12 +268,36 @@ namespace Tree4
             return occupants;
         }
 
+        private List<T4_occupant> get_colliders(T4_rect checkbox)
+        {
+            List<T4_occupant> colliders = new List<T4_occupant>();
+
+            // nothing to look here and deeper, we're outside of rect
+            if (! _rect.Is_intersects_with(checkbox)) return colliders;
+
+            // add occupants from the deeper rooms
+            if (_rooms != null)
+            {
+                foreach (T4 room in _rooms)
+                    colliders.AddRange(room.get_colliders(checkbox));
+            }
+
+            // add own occupants
+            foreach (T4_occupant occupant in _occupants)
+            {
+                if (occupant.Rect.Is_intersects_with(checkbox))
+                    colliders.Add(occupant);
+            }
+
+            return colliders;
+        }
+
         public List<object> Get_nearest_objects(double x, double y)
         {
             List<object> objects = new List<object>();
 
-            foreach (T4_occupant occupant in get_nearest_occupants(x, y))            
-                objects.Add(occupant.Obj);            
+            foreach (T4_occupant occupant in get_nearest_occupants(x, y))
+                objects.Add(occupant.Obj);
 
             return objects;
         }
@@ -270,8 +306,29 @@ namespace Tree4
         {
             List<T4_rect> rects = new List<T4_rect>();
 
-            foreach (T4_occupant occupant in get_nearest_occupants(x, y))            
-                rects.Add(occupant.Rect);            
+            foreach (T4_occupant occupant in get_nearest_occupants(x, y))
+                rects.Add(occupant.Rect);
+
+            return rects;
+        }
+
+
+        public List<object> Get_colliding_objects(T4_rect checkbox)
+        {
+            List<object> objects = new List<object>();
+
+            foreach (T4_occupant occupant in get_colliders(checkbox))
+                objects.Add(occupant.Obj);
+
+            return objects;
+        }
+
+        public List<T4_rect> Get_colliding_obj_rects(T4_rect checkbox)
+        {
+            List<T4_rect> rects = new List<T4_rect>();
+
+            foreach (T4_occupant occupant in get_colliders(checkbox))
+                rects.Add(occupant.Rect);
 
             return rects;
         }

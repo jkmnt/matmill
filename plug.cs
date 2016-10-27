@@ -127,7 +127,7 @@ namespace Matmill
 
             CamBam.CAD.Region[] regs = CamBam.CAD.Region.CreateFromPolylines(polys.ToArray());
 
-            if (regs.Length != 1)
+            if (regs.Length < 1)
                 return;
 
             CamBam.CAD.Region reg = regs[0];
@@ -139,7 +139,7 @@ namespace Matmill
             CamBamUI.MainUI.UndoBuffer.Add(CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities);
 
             Pocket_generator gen = new Pocket_generator(reg);            
-            gen.Debug_t4();
+            gen.Debug_t4(polys);
 
             CamBamUI.MainUI.ActiveView.ResumeRefresh();
             CamBamUI.MainUI.ActiveView.UpdateViewport();
@@ -153,7 +153,7 @@ namespace Matmill
             popup.Click += popup_handler;
             ui.Menus.mnuPlugins.DropDownItems.Add(popup);
 
-            if (false)
+            if (true)
             { 
                 ToolStripMenuItem popup2 = new ToolStripMenuItem("MAT debug");
                 popup2.Click += debug_handler;
