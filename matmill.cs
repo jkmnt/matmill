@@ -105,140 +105,153 @@ namespace Matmill
             return true;
         }
 
-        public void Refine(Slice prev_slice, List<Slice> colliding_slices)
+        public void Refine(Slice prev_slice, List<Slice> colliding_slices, double end_clearance)
         {
-            colliding_slices.Remove(prev_slice);    // no reason to check it
+            double clearance = end_clearance;
+
+            // check if arc is small. refining is worthless in this case
+            // criterion for smallness: there should be at least 4 segments with chord = clearance, plus
+            // one segment to space ends far enough. A pentagon with a 5 segments with edge length = clearance
+            // will define the min radius of circumscribed circle. clearance = 2 * R * sin (Pi / 5),
+            // R = clearance / 2 / sin (Pi / 5)
+
+            double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
+            if (_arc.Radius <= r_min)
+                return;
+
             if (colliding_slices.Contains(this))
             {
-                Host.warn("contains ME !");
+                // XXX: assert here
+                Host.err("contains ME !");
+                return;
             }
 
-            //--- lotsa code here
+            // now apply the colliding slices. to keep things simple and robust, we apply just one slice - the one who trims
+            // us most (removed length of arc is greatest).
 
-            // implement trim of single intersects for now
-            Arc2F remain = new Arc2F(_arc.Center, _arc.P1, _arc.P2, _arc.Direction);
+            // end clearance adjustment:
+            // to guarantee the cutter will never hit the unmilled area while rapiding between segments,
+            // arc will always have original ends, trimming will happen in the middle only.
+            // to prevent the cutter from milling extra small end segments and minimize numeric errors at small tangents,
+            // original ends would always stick at least for a clearance (chordal) length.
+            // i.e. if the point of intersection of arc and colliding circle is closer than clearance to the end,
+            // it is moved to clearance distance.
 
-//            Host.log("number of colliders {0}", colliding_slices.Count);
+            // there is a two cases of intersecting circles: with single intersection and with a double intersection.
+            // double intersections splits arc to three pieces (length of the middle part is the measure),
+            // single intesections splits arc in two (the part inside the circle is removed, its length is the measure).
+            // in both cases the intersection points are subject to "end clearance adjustment".
+            // single intersections are transformed to the double intersections, second point being one of the end clearances.
 
-            // remove all single colliding and non-colliding slices
+            // TODO: calculate clearance point the right way, with math :-)
+            Line2F c1_insects = _arc.CircleIntersect(new Circle2F(_arc.P1, clearance));
+            Line2F c2_insects = _arc.CircleIntersect(new Circle2F(_arc.P2, clearance));
+            Point2F c1 = c1_insects.p1.IsUndefined ? c1_insects.p2 : c1_insects.p1;
+            Point2F c2 = c2_insects.p1.IsUndefined ? c2_insects.p2 : c2_insects.p1;
 
-            int single_colliders = 0;
-
-            for (int i = colliding_slices.Count - 1; i >= 0; i--)
-            {
-                Slice s = colliding_slices[i];
-
-                Line2F secant = remain.CircleIntersect(s.Ball);
-                if (secant.p1.IsUndefined && secant.p2.IsUndefined)
-                {
-                    colliding_slices.RemoveAt(i);
-                    continue;
-                }
-
-                // double-collider, leave for a while
-                if (! (secant.p1.IsUndefined || secant.p2.IsUndefined))
-                    continue;
-
-                // single-collider, apply it
-                {
-                    Point2F splitpt = secant.p1.IsUndefined ? secant.p2 : secant.p1;
-
-                    if (splitpt.DistanceTo(remain.P1) < _max_engagement / 10 || splitpt.DistanceTo(remain.P2) < _max_engagement / 10)
-                    {
-                        colliding_slices.RemoveAt(i);
-                        continue;
-                    }
-
-                    single_colliders++;
-
-                    Arc2F[] split = remain.SplitAtPoint(splitpt);
-
-                    if (split[0].P1.DistanceTo(s.Arc.Center) < s.Radius)
-                        remain = split[1];
-                    else
-                        remain = split[0];
-
-                    colliding_slices.RemoveAt(i);
-
-                    // double colliders may become a single colliders, restart loop
-                    i = colliding_slices.Count;
-                }
-            }
-
-//            Host.log("number of single colliders {0}", single_colliders);
-//            Host.log("number of double colliders {0}", colliding_slices.Count);
-
-            // ok, now a double colliders only. choose double collider with a most effect to us
-            Slice max_trimmer = null;
-            double max_lens = 0;
+            Line2F max_secant = new Line2F();
+            double max_sweep = 0;
 
             foreach (Slice s in colliding_slices)
             {
-                Line2F secant = remain.CircleIntersect(s.Ball);
+                if (s == prev_slice) continue;  // no reason to process it
 
-                if (   secant.p1.DistanceTo(remain.P1) < 0.01 || secant.p1.DistanceTo(remain.P2) < 0.01
-                    || secant.p2.DistanceTo(remain.P1) < 0.01 || secant.p2.DistanceTo(remain.P2) < 0.01)
+                // TODO: choose the best option: arc-arc intersection or arc-circle
+                Line2F secant = _arc.ArcIntersect(s.Arc);
+                //Line2F secant = _arc.CircleIntersect(s.Ball);
+
+                if (secant.p1.IsUndefined && secant.p2.IsUndefined) continue;
+
+                if (secant.p1.IsUndefined || secant.p2.IsUndefined)
+                {
+                    // single intersection
+                    Point2F splitpt = secant.p1.IsUndefined ? secant.p2 : secant.p1;
+                    if (_arc.P1.DistanceTo(s.Ball.Center) < _arc.P2.DistanceTo(s.Ball.Center))
+                    {
+                        if (splitpt.DistanceTo(_arc.P1) < clearance)
+                            continue;  // nothing to remove
+                        else if (splitpt.DistanceTo(_arc.P2) < clearance)
+                            secant = new Line2F(c1, c2);
+                        else
+                            secant = new Line2F(c1, splitpt);
+                    }
+                    else
+                    {
+                        // remove second segment
+                        if (splitpt.DistanceTo(_arc.P2) < clearance)
+                            continue;
+                        else if (splitpt.DistanceTo(_arc.P1) < clearance)
+                            secant = new Line2F(c1, c2);
+                        else
+                            secant = new Line2F(splitpt, c2);
+                    }
+                }
+                else
+                {
+                    // double intersection
+                    if (secant.p1.DistanceTo(_arc.P1) < clearance)
+                        secant.p1 = c1;
+                    else if (secant.p1.DistanceTo(_arc.P2) < clearance)
+                        secant.p1 = c2;
+
+                    if (secant.p2.DistanceTo(_arc.P1) < clearance)
+                        secant.p2 = c1;
+                    else if (secant.p2.DistanceTo(_arc.P2) < clearance)
+                        secant.p2 = c2;
+                }
+
+                if (secant.p1.DistanceTo(secant.p2) < clearance * 2) // segment is too short, ignore it
                     continue;
 
-                double lens = Calc_lens(remain.Center, remain.Radius, s.Center, s.Radius);
-                if (lens > max_lens)
+                // sort insects by sweep (already sorted for single, may be unsorted for the double)
+                Vector2F v_p1 = new Vector2F(_arc.Center, _arc.P1);
+                Vector2F v_ins1 = new Vector2F(_arc.Center, secant.p1);
+                Vector2F v_ins2 = new Vector2F(_arc.Center, secant.p2);
+
+                double sweep = Sweep_comparer.calc_angle(v_ins1, v_ins2, _arc.Direction);
+
+                if (  Sweep_comparer.calc_angle(v_p1, v_ins1, _arc.Direction) > Sweep_comparer.calc_angle(v_p1, v_ins2, _arc.Direction))
                 {
-                    max_lens = lens;
-                    max_trimmer = s;
+                    secant = new Line2F(secant.p2, secant.p1);
+                    sweep = 2.0 * Math.PI - sweep;
+                }
+
+                if (sweep > max_sweep)
+                {
+                    // ok, a last check - removed arc midpoint should be inside the colliding circle
+                    Arc2F arc = new Arc2F(_arc.Center, secant.p1, secant.p2, _arc.Direction);
+                    if (arc.Midpoint.DistanceTo(s.Ball.Center) >= s.Ball.Radius) continue;
+
+                    max_sweep = sweep;
+                    max_secant = secant;
                 }
             }
 
-            if (max_trimmer == null)
+            if (max_sweep == 0)
             {
-                // recalculate engagement
-                if (single_colliders != 0)
-                {
-                    double eng_p1 = prev_slice.Center.DistanceTo(remain.P1) - prev_slice.Radius;
-                    double eng_mid = prev_slice.Center.DistanceTo(remain.Midpoint) - prev_slice.Radius;
-                    double eng_p2 = prev_slice.Center.DistanceTo(remain.P2) - prev_slice.Radius;
-
-                    // this engagement is 'virtual'. be conservative to reduce stress on cutter abruptly entering the wall
-                    _max_engagement += Math.Max(Math.Max(eng_p1, eng_mid), eng_p2);
-                    _max_engagement /= 2.0;
-                }
-
-                _segments.Add(remain);
+                _segments.Add(_arc);
             }
             else
             {
-                Line2F secant = remain.CircleIntersect(max_trimmer.Ball);
-                //XXX: dirty, just for now
+                Arc2F start = new Arc2F(_arc.Center, _arc.P1, max_secant.p1, _arc.Direction);
+                Arc2F removed = new Arc2F(_arc.Center, max_secant.p1, max_secant.p2, _arc.Direction);
+                Arc2F end = new Arc2F(_arc.Center, max_secant.p2, _arc.P2, _arc.Direction);
 
-                Point2F[] splitpts = {secant.p1, secant.p2};
-                Array.Sort(splitpts, new Sweep_comparer(remain.P1, remain.Center, remain.Direction));
+                _segments.Add(start);
+                _segments.Add(end);
 
-//                CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(new Circle(splitpts[0], 0.5));
-//                CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(new Circle(splitpts[1], 0.5));
+                // recalculate engagement if base engagement is no longer valid (midpoint vanished with the removed middle segment).
+                // this engagement is 'virtual' and averaged with base to reduce stress on cutter abruptly entering the wall
+                // TODO: is it really needed ? should we apply opposite derating is base engagement is valid ?
+                if (removed.VectorInsideArc(new Vector2F(_arc.Center, _arc.Midpoint)))
+                {
+                    double e0 = prev_slice.Center.DistanceTo(max_secant.p1) - prev_slice.Radius;
+                    double e1 = prev_slice.Center.DistanceTo(max_secant.p2) - prev_slice.Radius;
 
-                Arc2F[] split0 = remain.SplitAtPoint(splitpts[0]);
-                Arc2F[] split1 = split0[1].SplitAtPoint(splitpts[1]);
-
-                _segments.Add(split0[0]);
-                _segments.Add(split1[1]);
-
-                // recalculate engagement.
-                double eng_s0_p1 = prev_slice.Center.DistanceTo(split0[0].P1) - prev_slice.Radius;
-                double eng_s0_mid = prev_slice.Center.DistanceTo(split0[0].Midpoint) - prev_slice.Radius;
-                double eng_s0_p2 = prev_slice.Center.DistanceTo(split0[0].P2) - prev_slice.Radius;
-
-                double eng_s1_p1 = prev_slice.Center.DistanceTo(split1[1].P1) - prev_slice.Radius;
-                double eng_s1_mid = prev_slice.Center.DistanceTo(split1[1].Midpoint) - prev_slice.Radius;
-                double eng_s1_p2 = prev_slice.Center.DistanceTo(split1[1].P2) - prev_slice.Radius;
-
-                _max_engagement += Math.Max(eng_s0_p1,
-                                  Math.Max(eng_s0_mid,
-                                  Math.Max(eng_s0_p2,
-                                  Math.Max(eng_s1_p1,
-                                  Math.Max(eng_s1_mid,
-                                           eng_s1_p2)))));
-                _max_engagement /= 2.0;
+                    _max_engagement += Math.Max(e0, e1);
+                    _max_engagement /= 2.0;
+                }
             }
-//            _segments.Add(remain);
         }
 
         public Slice(Point2F center, double radius, RotationDirection dir)
@@ -487,13 +500,17 @@ namespace Matmill
         private readonly RotationDirection _dir;
         private readonly Vector2F _start_vector;
 
-        private double angle_to_start_vector(Point2F p)
+        static public double calc_angle(Vector2F v0, Vector2F v1, RotationDirection dir)
         {
-            Vector2F v = new Vector2F(_center, p);
-            double angle = Math.Atan2(Vector2F.Determinant(_start_vector, v), Vector2F.DotProduct(_start_vector, v));
+            double angle = Math.Atan2(Vector2F.Determinant(v0, v1), Vector2F.DotProduct(v0, v1));
             if (angle < 0)
                 angle += 2.0 * Math.PI;
-            return (_dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
+            return (dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
+        }
+
+        private double angle_to_start_vector(Point2F p)
+        {
+            return calc_angle(_start_vector, new Vector2F(_center, p), _dir);
         }
 
         public Sweep_comparer(Point2F origin, Point2F center, RotationDirection dir)
@@ -508,6 +525,7 @@ namespace Matmill
         {
             return angle_to_start_vector((Point2F)a).CompareTo(angle_to_start_vector((Point2F)b));
         }
+
     }
 
     enum prev_slice_algo
@@ -717,7 +735,7 @@ namespace Matmill
                 Slice s = new Slice(pt, radius, candidate, _cutter_r);
                 // XXX: dir is for now
                 s.Finalize(candidate, RotationDirection.CCW);
-                s.Refine(candidate, find_colliding_slices(s, ready_slices));
+                s.Refine(candidate, find_colliding_slices(s, ready_slices), _cutter_r);
 
                 //double slice_engage = Slice.Calc_max_engagement(pt, radius, candidate);
                 double slice_engage = s.Max_engagement;
@@ -790,6 +808,8 @@ namespace Matmill
             s.Arc.GetExtrema(ref min, ref max);
             T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
             List<Slice> result = new List<Slice>();
+//            foreach (object obj in ready_slices.Get_colliding_objects(ready_slices.Rect))
+//                result.Add((Slice)obj);
             // TODO: is there a way to do it without repacking ?
             foreach (object obj in ready_slices.Get_colliding_objects(rect))
                 result.Add((Slice)obj);
@@ -853,7 +873,7 @@ namespace Matmill
 
                 Slice s = new Slice(pt, radius, prev_slice, _cutter_r);
                 s.Finalize(prev_slice, dir);
-                s.Refine(prev_slice, find_colliding_slices(s, ready_slices));
+                s.Refine(prev_slice, find_colliding_slices(s, ready_slices), _cutter_r);
 
                 // queue good candidate and continue
                 if (s.Max_engagement <= _max_engagement)
@@ -1183,167 +1203,3 @@ namespace Matmill
         }
     }
 }
-
-// --- unused stuff
-
-//private List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Circle2F ball)
-//{
-//    List<Circle2F> result = new List<Circle2F>();
-//    foreach (Circle2F b in ballist)
-//    {
-//        double dist = Point2F.Distance(b.Center, ball.Center);
-//        if (b.Radius + ball.Radius <= dist + GENERAL_TOLERANCE)
-//            continue;
-//        result.Add(b);
-//    }
-//    return result;
-//}
-//
-//private List<Circle2F> find_intersecting_balls(List<Circle2F> ballist, Arc2F arc)
-//{
-//    List<Circle2F> result = new List<Circle2F>();
-//    foreach (Circle2F b in ballist)
-//    {
-//        double dist = Point2F.Distance(b.Center, arc.Center);
-//        if (b.Radius + arc.Radius <= dist + GENERAL_TOLERANCE)
-//            continue;
-//        Line2F splitline = arc.CircleIntersect(b);
-//        if (splitline.p1.IsUndefined && splitline.p2.IsUndefined)
-//            continue;
-//        result.Add(b);
-//    }
-//    return result;
-//}
-//
-//private List<Arc2F> filter_inner_arcs(List<Circle2F> ballist, List<Arc2F> segments)
-//{
-//    List<Arc2F> result = new List<Arc2F>();
-//
-//    foreach (Arc2F seg in segments)
-//    {
-//        bool is_inner = false;
-//        foreach (Circle2F ball in ballist)
-//        {
-//            // XXX: crude, but will work in most cases
-//            if (Point2F.Distance(ball.Center, seg.Midpoint) < ball.Radius)
-//            {
-//                is_inner = true;
-//                break;
-//            }
-//        }
-//        if (!is_inner)
-//            result.Add(seg);
-//    }
-//    return result;
-//}
-//        List<Entity> get_path(Branch branch, List<Circle2F> ballist, bool is_cw, double min_segment_length)
-//        {
-//            List<Entity> slices = new List<Entity>();
-//
-//            if (branch.Balls.Count == 0) return slices;
-//
-//            Circle2F prev_ball;
-//
-//            int i = 0;
-//
-//            if (branch.Parent == null)
-//            {
-//                // XXX: here should be the spiral
-//                Circle c = new Circle(branch.Balls[0]);
-//                slices.Add(c);
-//                prev_ball = branch.Balls[0];
-//                ballist.Add(branch.Balls[0]);
-//                i = 1;
-//            }
-//            else
-//            {
-//                prev_ball = find_nearest_ball(branch.Parent, point(branch.Curve.Points[0].Point));
-//            }
-//
-//            for (; i < branch.Balls.Count; i++)
-//            {
-//                Circle2F ball = branch.Balls[i];
-//                Line2F insects = ball.CircleIntersect(prev_ball);
-//
-//                if (insects.p1.IsUndefined || insects.p2.IsUndefined)
-//                {
-//                    // Probably it means there is unreachable slot
-//                    // XXX: for  debug
-//                    // XXX: throw exception here
-//                    slices.Add(new Circle(ball.Center, 100));
-//                    slices.Add(new Circle(prev_ball.Center, 120));
-//                    Host.log("undefined intersection! i = {0}, r={1}, prev r={2}", i, ball.Radius, prev_ball.Radius);
-//                }
-//                else
-//                {
-//                    RotationDirection dir = is_cw ? RotationDirection.CW : RotationDirection.CCW;
-//                    Arc2F basic_arc = new Arc2F(ball.Center, insects.p1, insects.p2, dir);
-//
-//                    //XXX: use dot product here !
-//                    if (! basic_arc.VectorInsideArc(new Vector2F(prev_ball.Center, ball.Center)))
-//                    {
-//                        basic_arc = new Arc2F(ball.Center, insects.p2, insects.p1, dir);        // reverse it
-//                    }
-//
-//                    List<Circle2F> more_insects = find_intersecting_balls(ballist, basic_arc);
-//                    // XXX: would this rise exception if prev ball is not there ?
-//                    more_insects.Remove(prev_ball);
-//
-//                    if (more_insects.Count == 0)
-//                    {
-//                        slices.Add(new Arc(basic_arc));
-//                    }
-//                    else
-//                    {
-//                        // just choose the ball with the longest trim chord for now
-//
-//                        /*
-//                        Circle2F trimming_ball = more_insects[0];
-//                        double max_chord = 0;
-//                        for (int idx=1; idx < more_insects.Count; idx++)
-//                        {
-//                            Circle2F b = more_insects[idx];
-//                            Line2F chord = basic_arc.CircleIntersect(b);
-//                            // XXX: wrong !
-//                            if (chord.p1.IsUndefined || chord.p2.IsUndefined)
-//                                continue;
-//
-//                            double chord_len = chord.Length();
-//                            if (chord_len > max_chord)
-//                            {
-//                                max_chord = chord_len;
-//                                trimming_ball = b;
-//                            }
-//                        }
-//
-//                        more_insects.Clear();
-//                        more_insects.Add(trimming_ball);
-//                        */
-//
-//
-//                        /*
-//                        List<Arc2F> segments = segment_arc_by_balls(basic_arc, more_insects, slices);
-//
-//                        foreach (Arc2F seg in segments)
-//                        {
-//                            if (seg.GetPerimeter() > basic_arc.GetPerimeter())
-//                            {
-//                                Host.log("perimeter is bigger !");
-//                            }
-//
-//                            if (seg.GetPerimeter() > min_segment_length)
-//                            {
-////                                slices.Add(new Arc(seg));
-//                            }
-//                        }
-//                        */
-//
-//                        slices.Add(new Arc(basic_arc));
-//                    }
-//                }
-//
-//                prev_ball = ball;
-//                ballist.Add(ball);
-//            }
-//            return slices;
-//        }
