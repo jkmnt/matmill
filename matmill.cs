@@ -18,17 +18,17 @@ namespace Matmill
         private Arc2F _arc;
         private double _max_engagement;
         private List<Arc2F> _segments = new List<Arc2F>();
-        private readonly double _mrr;
         private Slice _prev_slice;
+        private bool _is_undefined = true;
 
         public Circle2F Ball { get { return _ball; } }
         public Arc2F Arc { get { return _arc; } }
+        public bool Is_undefined { get { return _is_undefined; } }
 
         public Point2F Center { get { return _ball.Center; } }
         public double Radius { get { return _ball.Radius; } }
+        public Slice Prev { get { return _prev_slice; } }
         public double Max_engagement { get { return _max_engagement; } }
-        public double Mrr { get { return _mrr; } }
-        //public Slice Prev { get { return _prev_slice; } }
         public List<Arc2F> Segments { get { return _segments; } }
 
         static public double Calc_max_engagement(Point2F center, double radius, Slice prev_slice)
@@ -59,53 +59,37 @@ namespace Matmill
             return A_lens;
         }
 
-        static public double Calc_mrr(Point2F center, double radius, Slice prev_slice, double cutter_r)
+        public double Calc_mrr(double cutter_r)
         {
-            double R = prev_slice.Radius + cutter_r;
-            double r = radius;
+            double R = _prev_slice.Radius + cutter_r;
+            double r = _ball.Radius;
 
-            double A_lens = Calc_lens(prev_slice.Center, prev_slice.Radius, center, radius);
+            double A_lens = Calc_lens(_prev_slice.Center, _prev_slice.Radius, _ball.Center, r);
             if (A_lens == 0) return 0;
 
             return Math.PI * r * r - A_lens;
         }
 
-        /*
-        public Slice(Point2F center, double radius, Slice prev_slice, RotationDirection dir, double cutter_r)
-        {
-            _max_engagement = Slice.Calc_max_engagement(center, radius, prev_slice);
-            _mrr = Slice.Calc_mrr(center, radius, prev_slice, cutter_r);
-            _ball = new Circle2F(center, radius);
-            Finalize(prev_slice, dir);
-        }
-        */
-
         // temporary lightwidth slice
-        public Slice(Point2F center, double radius, Slice prev_slice, double cutter_r)
+        public Slice(Slice prev_slice, Point2F center, double radius, RotationDirection dir)
         {
-            _max_engagement = Slice.Calc_max_engagement(center, radius, prev_slice);
-            _mrr = Slice.Calc_mrr(center, radius, prev_slice, cutter_r);
-            _ball = new Circle2F(center, radius);
-        }
-
-        public bool Finalize(Slice prev_slice, RotationDirection dir)
-        {
-            Line2F insects = prev_slice.Ball.CircleIntersect(_ball);
-
-            if (insects.p1.IsUndefined || insects.p2.IsUndefined)
-                return false;
-
             _prev_slice = prev_slice;
+            _ball = new Circle2F(center, radius);
+            _max_engagement = Slice.Calc_max_engagement(center, radius, _prev_slice);
+
+            Line2F insects = _prev_slice.Ball.CircleIntersect(_ball);
+
+            if (insects.p1.IsUndefined || insects.p2.IsUndefined) return;
 
             _arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
 
-            if (! _arc.VectorInsideArc(new Vector2F(prev_slice.Center, _ball.Center)))
+            if (! _arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
                 _arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
 
-            return true;
+            _is_undefined = false;
         }
 
-        public void Refine(Slice prev_slice, List<Slice> colliding_slices, double end_clearance)
+        public void Refine(List<Slice> colliding_slices, double end_clearance)
         {
             double clearance = end_clearance;
 
@@ -154,11 +138,8 @@ namespace Matmill
 
             foreach (Slice s in colliding_slices)
             {
-                if (s == prev_slice) continue;  // no reason to process it
-
-                // TODO: choose the best option: arc-arc intersection or arc-circle
-                Line2F secant = _arc.ArcIntersect(s.Arc);
-                //Line2F secant = _arc.CircleIntersect(s.Ball);
+                if (s == _prev_slice) continue;  // no reason to process it
+                Line2F secant = _arc.CircleIntersect(s.Ball);
 
                 if (secant.p1.IsUndefined && secant.p2.IsUndefined) continue;
 
@@ -220,10 +201,11 @@ namespace Matmill
                 {
                     // ok, a last check - removed arc midpoint should be inside the colliding circle
                     Arc2F arc = new Arc2F(_arc.Center, secant.p1, secant.p2, _arc.Direction);
-                    if (arc.Midpoint.DistanceTo(s.Ball.Center) >= s.Ball.Radius) continue;
-
-                    max_sweep = sweep;
-                    max_secant = secant;
+                    if (arc.Midpoint.DistanceTo(s.Ball.Center) < s.Ball.Radius)
+                    {
+                        max_sweep = sweep;
+                        max_secant = secant;
+                    }
                 }
             }
 
@@ -242,14 +224,22 @@ namespace Matmill
 
                 // recalculate engagement if base engagement is no longer valid (midpoint vanished with the removed middle segment).
                 // this engagement is 'virtual' and averaged with base to reduce stress on cutter abruptly entering the wall
-                // TODO: is it really needed ? should we apply opposite derating is base engagement is valid ?
+                // TODO: is it really needed ?
+                // TOD: should we apply opposite derating if base engagement is valid ?
                 if (removed.VectorInsideArc(new Vector2F(_arc.Center, _arc.Midpoint)))
                 {
-                    double e0 = prev_slice.Center.DistanceTo(max_secant.p1) - prev_slice.Radius;
-                    double e1 = prev_slice.Center.DistanceTo(max_secant.p2) - prev_slice.Radius;
+                    double e0 = _prev_slice.Center.DistanceTo(max_secant.p1) - _prev_slice.Radius;
+                    double e1 = _prev_slice.Center.DistanceTo(max_secant.p2) - _prev_slice.Radius;
 
-                    _max_engagement += Math.Max(e0, e1);
-                    _max_engagement /= 2.0;
+                    if (false)
+                    {
+                        _max_engagement += Math.Max(e0, e1);
+                        _max_engagement /= 2.0;
+                    }
+                    else
+                    {
+                        _max_engagement = Math.Max(e0, e1);
+                    }
                 }
             }
         }
@@ -259,21 +249,26 @@ namespace Matmill
             _ball = new Circle2F(center, radius);
             _max_engagement = 0;
             // XXX: hack, just for now
+            _arc = new Arc2F(center, radius, 0, 359);
             Arc2F arc0 = new Arc2F(center, radius, 0, 120);
             Arc2F arc1 = new Arc2F(center, radius, 120, 120);
             Arc2F arc2 = new Arc2F(center, radius, 240, 120);
             _segments.Add(arc0);
             _segments.Add(arc1);
             _segments.Add(arc2);
+            _is_undefined = false;
         }
     }
 
     class Branch
     {
+        public delegate void Visitor(Branch b);
+
         public readonly Polyline Curve = new Polyline();
         public readonly Branch Parent = null;
         public readonly List<Branch> Children = new List<Branch>();
         public readonly List<Slice> Slices = new List<Slice>();
+        public Entity Entry = null;
         public string Debug = "";
 
         public bool Is_leaf { get { return Children.Count == 0; } }
@@ -287,6 +282,13 @@ namespace Matmill
             foreach (Branch b in Children)
                 result.AddRange(b.Df_traverse());
             return result;
+        }
+
+        public void Df_visit(Visitor v)
+        {
+            v(this);
+            foreach (Branch b in Children)
+                b.Df_visit(v);
         }
 
         // NOTE: deep distance is memoized, so this should be called only on finalized branch
@@ -486,6 +488,26 @@ namespace Matmill
             return followers;
         }
 
+        public bool Contains_point(Point2F pt)
+        {
+            ulong[] h = hash(pt);
+
+            for (int i = 0; i < 4; i++)
+            {
+                if (!_pool.ContainsKey(h[i]))
+                    continue;
+
+                foreach (Line2F seg in _pool[h[i]])
+                {
+                    if (pt.DistanceTo(seg.p1) < _tolerance)
+                        return true;
+                    if (pt.DistanceTo(seg.p2) < _tolerance)
+                        return true;
+                }
+            }
+            return false;
+        }
+
         public Segpool(int capacity, double tolerance)
         {
             _pool = new Dictionary<ulong, List<Line2F>>(capacity * 2 * 4);
@@ -528,31 +550,12 @@ namespace Matmill
 
     }
 
-    enum prev_slice_algo
-    {
-        MIN_MRR,
-        MAX_MRR,
-        MIN_DIST,
-        MAX_DIST,
-        MIN_ENGAGE,
-        MAX_ENGAGE
-    };
-
-    enum roll_algo
-    {
-        MAXIMIZE_ENGAGEMENT,
-        MAXIMIZE_MRR,
-    };
-
     class Pocket_generator
     {
         private const double GENERAL_TOLERANCE = 0.001;
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
         private const double MIN_LEAF_ENGAGEMENT_RATIO = 1; // XXX: effectively disabled now
-
-        private const prev_slice_algo PREV_SLICE_ALGO = prev_slice_algo.MIN_ENGAGE;
-        private const roll_algo ROLL_ALGO = roll_algo.MAXIMIZE_ENGAGEMENT;
 
         private readonly Region _reg;
         private readonly T4 _reg_t4;
@@ -561,9 +564,14 @@ namespace Matmill
         private double _max_engagement = 3.0 * 0.4;
         private double _sample_distance = 3.0 * 0.4 * 0.1;
 
-        public double cutter_d        {set { _cutter_r = value / 2.0;}}
-        public double max_engagement  {set { _max_engagement = value; } }
-        public double sample_distance {set { _sample_distance = value; } }
+        private Point2F _toolpoint = Point2F.Undefined;
+
+        private RotationDirection _dir = RotationDirection.CW;
+
+        public double Cutter_d        {set { _cutter_r = value / 2.0;}}
+        public double Max_engagement  {set { _max_engagement = value; } }
+        public double Sample_distance {set { _sample_distance = value; } }
+        public RotationDirection Mill_direction  {set { _dir = value; } }
 
         private Point3F point(Point2F p2)
         {
@@ -717,84 +725,50 @@ namespace Matmill
             return radius;
         }
 
-        private Slice find_prev_slice(Branch branch, Point2F pt, double radius, T4 ready_slices, prev_slice_algo algo)
+        private Slice find_prev_slice(Branch branch, Point2F pt, double radius, T4 ready_slices)
         {
             Slice prev_slice = null;
 
-            double max_mrr = double.MinValue;
-            double max_dist = double.MinValue;
-            double max_engage = double.MinValue;
-
-            double min_mrr = double.MaxValue;
-            double min_dist = double.MaxValue;
             double min_engage = double.MaxValue;
 
             List<Slice> candidates = branch.Get_upstream_roadblocks();
             foreach (Slice candidate in candidates)
             {
-                Slice s = new Slice(pt, radius, candidate, _cutter_r);
-                // XXX: dir is for now
-                s.Finalize(candidate, RotationDirection.CCW);
-                s.Refine(candidate, find_colliding_slices(s, ready_slices), _cutter_r);
+                Slice s = new Slice(candidate, pt, radius, _dir);
+                s.Refine(find_colliding_slices(s, ready_slices), _cutter_r);
 
                 //double slice_engage = Slice.Calc_max_engagement(pt, radius, candidate);
                 double slice_engage = s.Max_engagement;
                 if (slice_engage > _max_engagement)
                     continue;
 
-                double mrr = s.Mrr;
                 //double mrr = Slice.Calc_mrr(pt, radius, candidate, _cutter_r);
-                double dist = pt.DistanceTo(candidate.Center);
+                //double dist = pt.DistanceTo(candidate.Center);
 
-                switch (algo)
+                if (prev_slice == null || slice_engage < min_engage)
                 {
-                    case prev_slice_algo.MIN_MRR:
-                        if (prev_slice == null || mrr < min_mrr)
-                        {
-                            min_mrr = mrr;
-                            prev_slice = candidate;
-                        }
-                        break;
+                    min_engage = slice_engage;
+                    prev_slice = candidate;
+                }
+            }
 
-                    case prev_slice_algo.MAX_MRR:
-                        if (prev_slice == null || mrr > max_mrr)
-                        {
-                            max_mrr = mrr;
-                            prev_slice = candidate;
-                        }
-                        break;
+            return prev_slice;
+        }
 
-                    case prev_slice_algo.MIN_DIST:
-                        if (prev_slice == null || dist < min_dist)
-                        {
-                            min_dist = dist;
-                            prev_slice = candidate;
-                        }
-                        break;
+        private Slice find_nearest_slice(Branch branch, Point2F pt, double radius, T4 ready_slices)
+        {
+            Slice prev_slice = null;
 
-                    case prev_slice_algo.MAX_DIST:
-                        if (prev_slice == null || dist > max_dist)
-                        {
-                            max_dist = dist;
-                            prev_slice = candidate;
-                        }
-                        break;
+            double min_dist = double.MaxValue;
 
-                    case prev_slice_algo.MIN_ENGAGE:
-                        if (prev_slice == null || slice_engage < min_engage)
-                        {
-                            min_engage = slice_engage;
-                            prev_slice = candidate;
-                        }
-                        break;
-
-                    case prev_slice_algo.MAX_ENGAGE:
-                        if (prev_slice == null || slice_engage > max_engage)
-                        {
-                            max_engage = slice_engage;
-                            prev_slice = candidate;
-                        }
-                        break;
+            List<Slice> candidates = branch.Get_upstream_roadblocks();
+            foreach (Slice candidate in candidates)
+            {
+                double dist = pt.DistanceTo(candidate.Center);
+                if (prev_slice == null || dist < min_dist)
+                {
+                    min_dist = dist;
+                    prev_slice = candidate;
                 }
             }
 
@@ -816,7 +790,69 @@ namespace Matmill
             return result;
         }
 
-        private void roll(Branch branch, T4 ready_slices, RotationDirection dir)
+        // find least common ancestor for the both branches
+        Entity switch_branch(Slice dst, Slice src, T4 ready_slices)
+        {
+            List<Slice> path = new List<Slice>();
+
+            // continuation
+            if (dst.Prev == src)
+            {
+                return (Entity)new Line(src.Segments[src.Segments.Count - 1].P2, dst.Segments[0].P1);
+            }
+            else
+            {
+
+                List<Slice> src_ancestry = new List<Slice>();
+                List<Slice> dst_ancestry = new List<Slice>();
+
+                for (Slice s = src.Prev; s != null; s = s.Prev)
+                    src_ancestry.Insert(0, s);
+
+                for (Slice s = dst.Prev; s != null; s = s.Prev)
+                    dst_ancestry.Insert(0, s);
+
+                int lca;
+                for (lca = 0; lca < Math.Min(src_ancestry.Count, dst_ancestry.Count); lca++)
+                {
+                    if (src_ancestry[lca] != dst_ancestry[lca])
+                        break;
+                }
+
+                // now lca contains the lca of branches
+                // collect path up from src to lca and down to dst
+                for (int i = src_ancestry.Count - 1; i > lca; i--)
+                    path.Add(src_ancestry[i]);
+
+                for (int i = lca; i < dst_ancestry.Count - 1; i++)
+                    path.Add(dst_ancestry[i]);
+
+                // trace path
+                Polyline p = new Polyline();
+                Point2F current = src.Segments[src.Segments.Count - 1].P2;
+                Point2F end = dst.Segments[0].P1;
+
+                p.Add(point(current));
+
+                // follow the path, while looking for a shortcut to reduce travel time
+                // TODO: skip parts of path to reduce travel even more
+                for (int i = 0; i < path.Count; i++)
+                {
+                    Slice s = path[i];
+                    if (may_shortcut(current, end, ready_slices))
+                        break;
+
+                    current = s.Center;
+                    p.Add(point(current));
+                }
+
+                p.Add(point(end));
+
+                return (Entity)p;
+            }
+        }
+
+        private void roll(Branch branch, T4 ready_slices, ref Slice last_slice)
         {
             List <Point2F> samples = sample_curve(branch.Curve, _sample_distance);
 
@@ -834,10 +870,10 @@ namespace Matmill
 
             int i = 0;
 
-            // initial slice
+            // non-initial slice
             if (branch.Parent != null)
             {
-                prev_slice = find_prev_slice(branch, samples[0], mics[0], ready_slices, PREV_SLICE_ALGO);
+                prev_slice = find_prev_slice(branch, samples[0], mics[0], ready_slices);
 
                 if (prev_slice == null)
                 {
@@ -852,10 +888,10 @@ namespace Matmill
                 Point2F pt = samples[0];
                 double radius = mics[0];
 
-                Slice s = new Slice(pt, radius, dir);
+                Slice s = new Slice(pt, radius, _dir);
                 branch.Slices.Add(s);
                 // XXX: for now
-                // insert_in_t4(ready_slices, s.Ball);
+                insert_in_t4(ready_slices, s);
                 prev_slice = s;
                 i += 1;
             }
@@ -871,9 +907,10 @@ namespace Matmill
 
                 //double slice_engage = Slice.Calc_max_engagement(pt, radius, prev_slice);
 
-                Slice s = new Slice(pt, radius, prev_slice, _cutter_r);
-                s.Finalize(prev_slice, dir);
-                s.Refine(prev_slice, find_colliding_slices(s, ready_slices), _cutter_r);
+                Slice s = new Slice(prev_slice, pt, radius, _dir);
+                if (s.Is_undefined)
+                   continue;
+                s.Refine(find_colliding_slices(s, ready_slices), _cutter_r);
 
                 // queue good candidate and continue
                 if (s.Max_engagement <= _max_engagement)
@@ -887,16 +924,8 @@ namespace Matmill
                     }
                     else
                     {
-                        if (ROLL_ALGO == roll_algo.MAXIMIZE_ENGAGEMENT)
-                        {
-                            if (s.Max_engagement >= pending_slice.Max_engagement)
-                                choose_it = true;
-                        }
-                        else if (ROLL_ALGO == roll_algo.MAXIMIZE_MRR)
-                        {
-                            if (s.Mrr >= pending_slice.Mrr)
-                                choose_it = true;
-                        }
+                        if (s.Max_engagement >= pending_slice.Max_engagement)
+                            choose_it = true;
                     }
 
                     if (choose_it)
@@ -924,12 +953,21 @@ namespace Matmill
 
                 //pending_slice.Refine(prev_slice, find_colliding_slices(pending_slice, ready_slices));
 
+                // calculate branch entry movement for the first slice of the branch
+                if (branch.Slices.Count == 0 && last_slice != null)
+                {
+                    branch.Entry = switch_branch(pending_slice, last_slice, ready_slices);
+                }
+
                 branch.Slices.Add(pending_slice);
                 insert_in_t4(ready_slices, pending_slice);
                 prev_slice = pending_slice;
+                last_slice = pending_slice;
                 pending_slice = null;
                 i = pending_slice_index;    // trace again
             }
+
+            return;
 
             if (branch.Is_leaf && pending_slice != null && pending_slice.Max_engagement > prev_slice.Max_engagement * MIN_LEAF_ENGAGEMENT_RATIO)
             {
@@ -945,56 +983,84 @@ namespace Matmill
             }
         }
 
-        //XXX: slices are for debug
-        private List<Arc2F> segment_arc_by_balls(Arc2F basic, List<Circle2F> ballist, List<Entity> slices)
+        private Slice find_slice_in_range(List<Point2F> samples, ref int left, ref int right, Slice prev_slice, T4 ready_slices)
         {
-            // split arc more to reduce air time
-
-            List<Point2F> insect_points = new List<Point2F>();
-            foreach (Circle2F b in ballist)
+            while (true)
             {
-                Line2F insect_line = basic.CircleIntersect(b);
-                if (!insect_line.p1.IsUndefined)
-                    insect_points.Add(insect_line.p1);
-                if (!insect_line.p2.IsUndefined)
-                    insect_points.Add(insect_line.p2);
+                int mid = (left + right) / 2;
+
+                Point2F pt = samples[mid];
+
+                double radius = get_mic_radius(pt);
+
+                Slice s = new Slice(prev_slice, pt, radius, _dir);
+                //if (! s.Is_undefined)
+                s.Refine(find_colliding_slices(s, ready_slices), _cutter_r);
+
+                if (Math.Abs((s.Max_engagement - _max_engagement) / _max_engagement) < 0.01)
+                {
+                    left = mid;
+                    return s;
+                }
+
+                if (s.Max_engagement > _max_engagement)
+                    right = mid;
+                else
+                    left = mid;
+
+                // XXX: sucky
+                if (Math.Abs(left - right) <= 1)
+                    return s;
+            }
+        }
+
+        private void roll_w_bisect(Branch branch, T4 ready_slices, ref Slice last_slice)
+        {
+            List <Point2F> samples = sample_curve(branch.Curve, _sample_distance / 64.0);
+
+            Slice prev_slice = null;
+
+            int i = 0;
+
+            // non-initial slice
+            if (branch.Parent != null)
+            {
+                prev_slice = find_prev_slice(branch, samples[0], get_mic_radius(samples[0]), ready_slices);
+
+                if (prev_slice == null)
+                {
+                    Host.log("Failed to attach branch");
+                    return;
+                }
+            }
+            else
+            {
+                // top branch should always had a big circle at pt[0] !
+                //XXX: verify it !
+                Point2F pt = samples[0];
+                double radius = get_mic_radius(samples[0]);
+
+                Slice s = new Slice(pt, radius, _dir);
+                branch.Slices.Add(s);
+                // XXX: for now
+                insert_in_t4(ready_slices, s);
+                prev_slice = s;
+                i += 1;
             }
 
-
-            Point2F[] insect_array = insect_points.ToArray();
-            Array.Sort(insect_array, new Sweep_comparer(basic.P1, basic.Center, basic.Direction));
-
-
-            /*
-            foreach (Point2F pt in insect_array)
+            while (i < samples.Count - 1)
             {
-                slices.Add(new Circle(pt, 1));
+                int right = samples.Count - 1;
+                Slice s = find_slice_in_range(samples, ref i, ref right, prev_slice, ready_slices);
+                if (s.Is_undefined)
+                    return;
+                if (Math.Abs((s.Max_engagement - _max_engagement) / _max_engagement) > 0.25)
+                    return;
+                branch.Slices.Add(s);
+                insert_in_t4(ready_slices, s);
+                prev_slice = s;
+                last_slice = s;
             }
-            */
-
-            List<Arc2F> segments = new List<Arc2F>();
-
-            // XXX: wrong, wrong, wrong
-            Arc2F remain = basic;
-            for (int idx = 0; idx < insect_array.Length; idx++)
-            {
-                Arc2F[] split = remain.SplitAtPoint(insect_array[idx]);
-//                if (Point2F.Distance(split[0].P1, split[0].P2) > GENERAL_TOLERANCE)
-//                {
-                    segments.Add(split[0]);
-                    remain = split[1];
-//                }
-            }
-
-//            if (Point2F.Distance(remain.P1, remain.P2) > GENERAL_TOLERANCE)
-                segments.Add(remain);
-
-            // XXX: Good segments may be filtered out !
-             //segments = filter_inner_arcs(ballist, segments);
-
-            //slices.Add(new Arc(basic_arc));
-
-            return segments;
         }
 
         private void attach_segments(Branch me, Segpool pool)
@@ -1057,6 +1123,7 @@ namespace Matmill
 
                 pool.Add(line);
             }
+
             Host.log("done analyzing segments");
             Host.log("got {0} hashes", pool.N_hashes);
 
@@ -1070,53 +1137,179 @@ namespace Matmill
             return root;
         }
 
-        private void insert_in_t4(T4 t4, object primitive)
-        {
-            T4_rect rect;
-            if (primitive is Line2F)
-            {
-                Line2F line = ((Line2F)primitive);
-                rect = new T4_rect(Math.Min(line.p1.X, line.p2.X),
-                                    Math.Min(line.p1.Y, line.p2.Y),
-                                    Math.Max(line.p1.X, line.p2.X),
-                                    Math.Max(line.p1.Y, line.p2.Y));
-            }
-            else if (primitive is Arc2F)
-            {
-                Point2F min = Point2F.Undefined;
-                Point2F max = Point2F.Undefined;
-                ((Arc2F)primitive).GetExtrema(ref min, ref max);
-                rect = new T4_rect(min.X, min.Y, max.X, max.Y);
-            }
-            else if (primitive is Circle2F)
-            {
-                Circle2F circle = ((Circle2F)primitive);
-                Point2F center = circle.Center;
-                double radius = circle.Radius;
-                rect = new T4_rect(center.X - radius, center.Y - radius, center.X + radius, center.Y + radius);
-            }
-            else
-            {
-                return;
-            }
-
-            t4.Add(rect, primitive);
-        }
-
         private void insert_in_t4(T4 t4, Slice slice)
         {
-            Point2F min = Point2F.Undefined;
-            Point2F max = Point2F.Undefined;
-            slice.Arc.GetExtrema(ref min, ref max);
-            t4.Add(new T4_rect(min.X, min.Y, max.X, max.Y), slice);
+            Circle2F circle = slice.Ball;
+            Point2F center = circle.Center;
+            double radius = circle.Radius;
+            t4.Add(new T4_rect(center.X - radius, center.Y - radius, center.X + radius, center.Y + radius), slice);
         }
 
         private void insert_in_t4(T4 t4, Polyline p)
         {
             for (int i = 0; i < p.NumSegments; i++)
             {
-                insert_in_t4(t4, p.GetSegment(i));
+                object seg = p.GetSegment(i);
+                T4_rect rect;
+
+                if (seg is Line2F)
+                {
+                    Line2F line = ((Line2F)seg);
+                    rect = new T4_rect(Math.Min(line.p1.X, line.p2.X),
+                                        Math.Min(line.p1.Y, line.p2.Y),
+                                        Math.Max(line.p1.X, line.p2.X),
+                                        Math.Max(line.p1.Y, line.p2.Y));
+                }
+                else if (seg is Arc2F)
+                {
+                    Point2F min = Point2F.Undefined;
+                    Point2F max = Point2F.Undefined;
+                    ((Arc2F)seg).GetExtrema(ref min, ref max);
+                    rect = new T4_rect(min.X, min.Y, max.X, max.Y);
+                }
+                else
+                {
+                    // XXX: assert here ?
+                    continue;
+                }
+
+                t4.Add(rect, seg);
             }
+        }
+
+        // check if it is possible to shortcut from a to b via while
+        // staying inside the slice balls
+        // we are collecting all the intersections and tracking the list of balls we're inside
+        // at any given point. If list becomes empty, we can't shortcut
+        private bool may_shortcut(Point2F a, Point2F b, List<Slice> colliders)
+        {
+            Line2F path = new Line2F(a, b);
+            SortedList<double, List<Slice>> intersections = new SortedList<double, List<Slice>>();
+            List<Slice> running_collides = new List<Slice>();
+
+            foreach (Slice s in colliders)
+            {
+                Line2F insects = s.Ball.LineIntersect(path, GENERAL_TOLERANCE);
+
+                if (insects.p1.IsUndefined && insects.p2.IsUndefined)
+                {
+                    // no intersections: check if whole path lay inside the circle
+                    if (   a.DistanceTo(s.Ball.Center) < s.Ball.Radius + GENERAL_TOLERANCE
+                        && b.DistanceTo(s.Ball.Center) < s.Ball.Radius + GENERAL_TOLERANCE)
+                        return true;
+                }
+                else if (insects.p1.IsUndefined || insects.p2.IsUndefined)
+                {
+                    // single intersection. one of the path ends must be inside the circle, otherwise it is a tangent case
+                    // and should be ignored
+                    if (a.DistanceTo(s.Ball.Center) < s.Ball.Radius + GENERAL_TOLERANCE)
+                    {
+                        running_collides.Add(s);
+                    }
+                    else if (b.DistanceTo(s.Ball.Center) < s.Ball.Radius + GENERAL_TOLERANCE)
+                    {
+                        ;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    Point2F c = insects.p1.IsUndefined ? insects.p2 : insects.p1;
+                    double d = c.DistanceTo(a);
+                    if (!intersections.ContainsKey(d))
+                        intersections.Add(d, new List<Slice>());
+                    intersections[d].Add(s);
+                }
+                else
+                {
+                    // double intersection
+                    double d = insects.p1.DistanceTo(a);
+                    if (! intersections.ContainsKey(d))
+                        intersections.Add(d, new List<Slice>());
+                    intersections[d].Add(s);
+
+                    d = insects.p2.DistanceTo(a);
+                    if (! intersections.ContainsKey(d))
+                        intersections.Add(d, new List<Slice>());
+                    intersections[d].Add(s);
+                }
+            }
+
+            if (running_collides.Count == 0) return false;
+
+            foreach (var ins in intersections)
+            {
+                foreach (Slice s in ins.Value)
+                {
+                    if (running_collides.Contains(s))
+                        running_collides.Remove(s);
+                    else
+                        running_collides.Add(s);
+                }
+
+                if (running_collides.Count == 0 && (ins.Key + GENERAL_TOLERANCE < a.DistanceTo(b)))
+                    return false;
+            }
+
+            return true;
+        }
+
+        private bool may_shortcut(Point2F a, Point2F b, T4 slices)
+        {
+            T4_rect rect = new T4_rect(Math.Min(a.X, b.X),
+                                       Math.Min(a.Y, b.Y),
+                                       Math.Max(a.X, b.X),
+                                       Math.Max(a.Y, b.Y));
+
+            List<Slice> colliders = new List<Slice>();
+            foreach(object obj in slices.Get_colliding_objects(rect))
+                colliders.Add((Slice)obj);
+
+            return may_shortcut(a, b, colliders);
+        }
+
+        private List<Entity> generate_path(Branch root)
+        {
+            Slice last_slice = null;
+
+            List<Entity> path = new List<Entity>();
+
+            foreach (Branch b in root.Df_traverse())
+            {
+                if (b.Entry != null)
+                {
+//                    path.Add(b.Entry);
+                }
+
+                for (int sidx = 0; sidx < b.Slices.Count; sidx++)
+                {
+                    Slice s = b.Slices[sidx];
+
+                    // connect following branch slices
+                    if (sidx > 0)
+                    {
+                        //path.Add(new Line(last_slice.Segments[last_slice.Segments.Count - 1].P2, s.Segments[0].P1));
+                    }
+
+                    // emit segments
+                    for (int i = 0; i < s.Segments.Count; i++)
+                    {
+                        // connect segments
+                        if (i > 0)
+                        {
+//                            path.Add(new Line(s.Segments[i - 1].P2, s.Segments[i].P1));
+                        }
+
+                        Arc arc = new Arc(s.Segments[i]);
+                        arc.Tag = String.Format("me {0:F4}, so {1:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
+                        path.Add(arc);
+                    }
+                    last_slice = s;
+                }
+            }
+
+            return path;
         }
 
         public List<Entity> run()
@@ -1137,32 +1330,17 @@ namespace Matmill
 
             T4 ready_slices = new T4(_reg_t4.Rect);
 
+            //root.Df_visit(b => roll(b, ready_slices));
+
+            Slice last_slice = null;
+
             foreach (Branch b in traverse)
             {
-                roll(b, ready_slices, RotationDirection.CCW);
+                //roll(b, ready_slices, ref last_slice);
+                roll_w_bisect(b, ready_slices, ref last_slice);
             }
 
-            List<Entity> path = new List<Entity>();
-            foreach (Branch b in traverse)
-            {
-                // XXX: for debug
-                Entity p = b.Curve.Clone();
-                p.Tag = b.Get_parents().Count.ToString();
-                p.Tag += b.Debug;
-                //CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(p);
-                path.Add(p);
-                foreach (Slice s in b.Slices)
-                {
-                    foreach (Arc2F seg in s.Segments)
-                    {
-                        Arc arc = new Arc(seg);
-                        arc.Tag = String.Format("me {0:F4}, so {1:F4}, mrr {2:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2), s.Mrr);
-                        path.Add(arc);
-                    }
-                }
-            }
-
-            return path;
+            return generate_path(root);
         }
 
         public void Debug_t4(List<Polyline> curves)

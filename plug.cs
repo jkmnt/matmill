@@ -84,9 +84,9 @@ namespace Matmill
             CamBamUI.MainUI.UndoBuffer.Add(CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities);
 
             Pocket_generator gen = new Pocket_generator(reg);
-            gen.cutter_d = cutter_d;
-            gen.max_engagement = max_engagement;
-            gen.sample_distance = sample_distance;
+            gen.Cutter_d = cutter_d;
+            gen.Max_engagement = max_engagement;
+            gen.Sample_distance = sample_distance;
             List<Entity> path = gen.run();
 
             Host.log("path generated");
