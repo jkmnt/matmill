@@ -11,6 +11,60 @@ using Voronoi2;
 
 namespace Matmill
 {
+    class Curve
+    {
+        // XXX: empty curve shouldn't be accessed
+        private List<Point2F> _points = new List<Point2F>();
+        private List<double> _seg_offsets = new List<double>();
+        private double _len = 0;
+
+        public List<Point2F> Points { get {return _points;}}
+        public Point2F Start { get {return _points[0];}}
+        public Point2F End { get {return _points[_points.Count - 1];}}
+        public double Length { get {return _len;}}
+
+        public void Add(Point2F pt)
+        {
+            if (_points.Count != 0)
+            {
+                double seg_len = End.DistanceTo(pt);
+                _seg_offsets.Add(_len);
+                _len += seg_len;
+            }
+            _points.Add(pt);
+        }
+
+        public Point2F Get_parametric_pt(double u)
+        {
+            if (_points.Count < 2)
+                return _points[0];
+
+            double offset = u * _len;
+            // TODO: use binary search
+            int seg;
+            for (seg = 1; seg < _seg_offsets.Count; seg++)
+            {
+                if (_seg_offsets[seg] > offset)
+                    break;
+            }
+
+            seg -= 1;
+            offset -= _seg_offsets[seg];
+
+            Point2F p1 = _points[seg];
+            Point2F p2 = _points[seg + 1];
+            double dist = p2.DistanceTo(p1);
+            double x = p1.X + offset / dist * (p2.X - p1.X);
+			double y = p1.Y + offset / dist * (p2.Y - p1.Y);
+
+            return new Point2F(x, y);
+        }
+
+        public Curve()
+        {
+        }
+    }
+
     class Slice
     {
         // TODO: ball or arc: choose only one representation
@@ -264,7 +318,7 @@ namespace Matmill
     {
         public delegate void Visitor(Branch b);
 
-        public readonly Polyline Curve = new Polyline();
+        public readonly Curve Curve = new Curve();
         public readonly Branch Parent = null;
         public readonly List<Branch> Children = new List<Branch>();
         public readonly List<Slice> Slices = new List<Slice>();
@@ -272,8 +326,6 @@ namespace Matmill
         public string Debug = "";
 
         public bool Is_leaf { get { return Children.Count == 0; } }
-
-        private double _deep_distance = 0;
 
         public List<Branch> Df_traverse()  //
         {
@@ -291,17 +343,13 @@ namespace Matmill
                 b.Df_visit(v);
         }
 
-        // NOTE: deep distance is memoized, so this should be called only on finalized branch
         public double Deep_distance()
         {
-            if (_deep_distance != 0)
-                return _deep_distance;
-
-            _deep_distance = Curve.GetPerimeter();
+            double dist = Curve.Length;
             foreach (Branch b in Children)
-                _deep_distance += b.Deep_distance();
+                dist += b.Deep_distance();
 
-            return _deep_distance;
+            return dist;
         }
 
         public List<Branch> Get_parents()
@@ -369,152 +417,6 @@ namespace Matmill
         }
     }
 
-    // special structure for a fast joining of chained line segments
-    // segments (references to them) are stored in dictionary under the long integer key, crafted from
-    // their coordinates. segment is stored twice, under the keys for start and end points.
-    // lookup should give a small range of nearby segments, then finepicked by the distance compare
-    // this way we may find next segment(s) in chain in almost O(1)
-
-    // pull operation removes chained segments from pool and return them.
-
-    // segments may map to different keys if their coordinates are rounded to neighbour integers,
-    // this is remedied by storing 4 hashes instead of one, with x and y coordinates floored and
-    // ceiled. it corresponds to 4 nearby cells in 2d grid
-    class Segpool
-    {
-        private Dictionary<ulong, List<Line2F>> _pool;
-        private readonly double _tolerance;
-
-        public int N_hashes { get { return _pool.Count; } }
-
-        private ulong[] hash(Point2F pt)
-        {
-            double hashscale = 1 / (_tolerance * 10);
-            double x = pt.X * hashscale;
-            double y = pt.Y * hashscale;
-
-            return new ulong[]
-            {
-                    ((ulong)Math.Floor(y) << 32) | (ulong)Math.Floor(x),
-                    ((ulong)Math.Floor(y) << 32) | (ulong)Math.Ceiling(x),
-                    ((ulong)Math.Ceiling(y) << 32) | (ulong)Math.Floor(x),
-                    ((ulong)Math.Ceiling(y) << 32) | (ulong)Math.Ceiling(x),
-            };
-        }
-
-        private void insert_seg(ulong h, Line2F seg)
-        {
-            if (!_pool.ContainsKey(h))
-                _pool[h] = new List<Line2F>();
-            if (!_pool[h].Contains(seg))
-                _pool[h].Add(seg);
-        }
-
-        private void remove_seg(ulong h, Line2F seg)
-        {
-            if (_pool.ContainsKey(h))
-                _pool[h].Remove(seg);
-        }
-
-        public void Add(Line2F seg)
-        {
-            ulong[] h1 = hash(seg.p1);
-
-            insert_seg(h1[0], seg);
-            insert_seg(h1[1], seg);
-            insert_seg(h1[2], seg);
-            insert_seg(h1[3], seg);
-
-            ulong[] h2 = hash(seg.p2);
-
-            insert_seg(h2[0], seg);
-            insert_seg(h2[1], seg);
-            insert_seg(h2[2], seg);
-            insert_seg(h2[3], seg);
-        }
-
-        public void Remove(Line2F seg)
-        {
-            ulong[] h1 = hash(seg.p1);
-
-            remove_seg(h1[0], seg);
-            remove_seg(h1[1], seg);
-            remove_seg(h1[2], seg);
-            remove_seg(h1[3], seg);
-
-            ulong[] h2 = hash(seg.p2);
-
-            remove_seg(h2[0], seg);
-            remove_seg(h2[1], seg);
-            remove_seg(h2[2], seg);
-            remove_seg(h2[3], seg);
-        }
-
-        public List<Point2F> Pull_follow_points(Point2F join_pt)
-        {
-            List<Point2F> followers = new List<Point2F>();
-            List<Line2F> processed = new List<Line2F>();
-
-            ulong[] h = hash(join_pt);
-
-            for (int i = 0; i < 4; i++)
-            {
-                if (!_pool.ContainsKey(h[i]))
-                    continue;
-
-                foreach (Line2F seg in _pool[h[i]])
-                {
-                    if (processed.Contains(seg))
-                        continue;  // already got it
-
-                    if (join_pt.DistanceTo(seg.p1) < _tolerance)
-                    {
-                        followers.Add(seg.p2);
-                        processed.Add(seg);
-                    }
-                    else if (join_pt.DistanceTo(seg.p2) < _tolerance)
-                    {
-                        followers.Add(seg.p1);
-                        processed.Add(seg);
-                    }
-                }
-            }
-
-            foreach (Line2F seg in processed)
-            {
-                Remove(seg);
-            }
-
-            return followers;
-        }
-
-        public bool Contains_point(Point2F pt)
-        {
-            ulong[] h = hash(pt);
-
-            for (int i = 0; i < 4; i++)
-            {
-                if (!_pool.ContainsKey(h[i]))
-                    continue;
-
-                foreach (Line2F seg in _pool[h[i]])
-                {
-                    if (pt.DistanceTo(seg.p1) < _tolerance)
-                        return true;
-                    if (pt.DistanceTo(seg.p2) < _tolerance)
-                        return true;
-                }
-            }
-            return false;
-        }
-
-        public Segpool(int capacity, double tolerance)
-        {
-            _pool = new Dictionary<ulong, List<Line2F>>(capacity * 2 * 4);
-            _tolerance = tolerance;
-        }
-    }
-
     class Sweep_comparer : IComparer
     {
         private readonly Point2F _origin;
@@ -555,14 +457,15 @@ namespace Matmill
         private const double GENERAL_TOLERANCE = 0.001;
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
-        private const double MIN_LEAF_ENGAGEMENT_RATIO = 1; // XXX: effectively disabled now
+        private const double ENGAGEMENT_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
+
 
         private readonly Region _reg;
         private readonly T4 _reg_t4;
 
         private double _cutter_r = 1.5;
         private double _max_engagement = 3.0 * 0.4;
-        private double _sample_distance = 3.0 * 0.4 * 0.1;
+        private double _min_engagement = 3.0 * 0.1;
 
         private Point2F _toolpoint = Point2F.Undefined;
 
@@ -570,7 +473,7 @@ namespace Matmill
 
         public double Cutter_d        {set { _cutter_r = value / 2.0;}}
         public double Max_engagement  {set { _max_engagement = value; } }
-        public double Sample_distance {set { _sample_distance = value; } }
+        public double Min_engagement  {set { _min_engagement = value; } }
         public RotationDirection Mill_direction  {set { _dir = value; } }
 
         private Point3F point(Point2F p2)
@@ -582,14 +485,6 @@ namespace Matmill
         {
             return new Point2F(p3.X, p3.Y);
         }
-
-        private enum st
-        {
-            SEEKING_PASSABLE_START,
-            SEEKING_UNPASSABLE_MIDDLE,
-            SEEKING_PASSABLE_END,
-            FLUSHING_END,
-        };
 
         private List<Point2F> sample_curve(Polyline p, double step)
         {
@@ -854,26 +749,13 @@ namespace Matmill
 
         private void roll(Branch branch, T4 ready_slices, ref Slice last_slice)
         {
-            List <Point2F> samples = sample_curve(branch.Curve, _sample_distance);
-
-            // calculate mics once to prevent expensive recalculations
-            double[] mics = new double[samples.Count];
-
-            for (int mic_idx = 0; mic_idx < samples.Count; mic_idx++)
-            {
-                mics[mic_idx] = get_mic_radius(samples[mic_idx]);
-            }
-
             Slice prev_slice = null;
-            Slice pending_slice = null;
-            int pending_slice_index = 0;
-
-            int i = 0;
 
             // non-initial slice
             if (branch.Parent != null)
             {
-                prev_slice = find_prev_slice(branch, samples[0], mics[0], ready_slices);
+                Point2F pt = branch.Curve.Start;
+                prev_slice = find_prev_slice(branch, pt, get_mic_radius(pt), ready_slices);
 
                 if (prev_slice == null)
                 {
@@ -885,177 +767,83 @@ namespace Matmill
             {
                 // top branch should always had a big circle at pt[0] !
                 //XXX: verify it !
-                Point2F pt = samples[0];
-                double radius = mics[0];
+                Point2F pt = branch.Curve.Start;
+                double radius = get_mic_radius(pt);
 
                 Slice s = new Slice(pt, radius, _dir);
                 branch.Slices.Add(s);
                 // XXX: for now
                 insert_in_t4(ready_slices, s);
                 prev_slice = s;
-                i += 1;
             }
 
-            // XXX: lerp instead of skipping should be nice
-            for (; i < samples.Count; i++)
+            double left = 0;
+            while (true)
             {
-                Point2F pt = samples[i];
-                double radius = mics[i];
+                Slice s;
 
-                if (radius < _cutter_r)
-                    continue;
+                double right = 1.0;
 
-                //double slice_engage = Slice.Calc_max_engagement(pt, radius, prev_slice);
-
-                Slice s = new Slice(prev_slice, pt, radius, _dir);
-                if (s.Is_undefined)
-                   continue;
-                s.Refine(find_colliding_slices(s, ready_slices), _cutter_r);
-
-                // queue good candidate and continue
-                if (s.Max_engagement <= _max_engagement)
+                while (true)
                 {
-                    //Slice s = new Slice(pt, radius, prev_slice, _cutter_r);
-                    bool choose_it  = false;
+                    double mid = (left + right) / 2;
 
-                    if (pending_slice == null)
+                    Point2F pt = branch.Curve.Get_parametric_pt(mid);
+
+                    double radius = get_mic_radius(pt);
+                    s = new Slice(prev_slice, pt, radius, _dir);
+                    if (s.Is_undefined) // undefined means engagement is too big, slices do not intersect at all
                     {
-                        choose_it = true;
+                        right = mid;
                     }
                     else
                     {
-                        if (s.Max_engagement >= pending_slice.Max_engagement)
-                            choose_it = true;
+                        s.Refine(find_colliding_slices(s, ready_slices), _cutter_r);
+
+                        // prefer slight undershoot withing the engagement tolerance
+                        if (s.Max_engagement > _max_engagement)
+                        {
+                            right = mid;
+                        }
+                        else if (Math.Abs(s.Max_engagement - _max_engagement) / _max_engagement < ENGAGEMENT_TOLERANCE_PERCENTAGE)
+                        {
+                            left = mid;
+                            break;
+                        }
+                        else
+                        {
+                            left = mid;
+                        }
                     }
 
-                    if (choose_it)
+                    Point2F other = branch.Curve.Get_parametric_pt(left == mid ? right : left);
+
+                    if (pt.DistanceTo(other) < GENERAL_TOLERANCE)
                     {
-                        pending_slice = s;
-                        pending_slice_index = i;
+                        left = mid;
+                        break;
                     }
-                    continue;
                 }
 
-                // max engagement overshoot, time to dequeue candidate
-                if (pending_slice == null)
+                if (s.Radius < _cutter_r)
+                    return;
+
+                double err = (s.Max_engagement - _max_engagement) / _max_engagement;
+
+                if (err > ENGAGEMENT_TOLERANCE_PERCENTAGE * 10)
                 {
-                    Host.log("No pending slice before stepover overshoot. Stopping slicing the branch.");
+                    Host.err("Failed to create slice within stepover limit. Stopping slicing the branch.");
                     return;
                 }
 
-//              if (! pending_slice.Finalize(prev_slice, dir))
-//              {
-//                  Host.log("Can't connect slice to previous (can't pass thru slot ?). Stopping slicing the branch.");
-//                  // XXX: should emit last possible slice before unmillable area
-//                  // now it is not and crudely aborted
-//                  return;
-//              }
+                if (s.Max_engagement < _min_engagement)
+                    return;
 
-                //pending_slice.Refine(prev_slice, find_colliding_slices(pending_slice, ready_slices));
-
-                // calculate branch entry movement for the first slice of the branch
                 if (branch.Slices.Count == 0 && last_slice != null)
                 {
-                    branch.Entry = switch_branch(pending_slice, last_slice, ready_slices);
+                    branch.Entry = switch_branch(s, last_slice, ready_slices);
                 }
 
-                branch.Slices.Add(pending_slice);
-                insert_in_t4(ready_slices, pending_slice);
-                prev_slice = pending_slice;
-                last_slice = pending_slice;
-                pending_slice = null;
-                i = pending_slice_index;    // trace again
-            }
-
-            return;
-
-            if (branch.Is_leaf && pending_slice != null && pending_slice.Max_engagement > prev_slice.Max_engagement * MIN_LEAF_ENGAGEMENT_RATIO)
-            {
-//              if (! pending_slice.Finalize(prev_slice, dir))
-//              {
-//                  Host.log("Failed to finalize last slice");
-//                  return;
-//              }
-
-//              pending_slice.Refine(prev_slice, find_colliding_slices(pending_slice, ready_slices));
-                branch.Slices.Add(pending_slice);
-                insert_in_t4(ready_slices, pending_slice);
-            }
-        }
-
-        private Slice find_slice_in_range(List<Point2F> samples, ref int left, ref int right, Slice prev_slice, T4 ready_slices)
-        {
-            while (true)
-            {
-                int mid = (left + right) / 2;
-
-                Point2F pt = samples[mid];
-
-                double radius = get_mic_radius(pt);
-
-                Slice s = new Slice(prev_slice, pt, radius, _dir);
-                //if (! s.Is_undefined)
-                s.Refine(find_colliding_slices(s, ready_slices), _cutter_r);
-
-                if (Math.Abs((s.Max_engagement - _max_engagement) / _max_engagement) < 0.01)
-                {
-                    left = mid;
-                    return s;
-                }
-
-                if (s.Max_engagement > _max_engagement)
-                    right = mid;
-                else
-                    left = mid;
-
-                // XXX: sucky
-                if (Math.Abs(left - right) <= 1)
-                    return s;
-            }
-        }
-
-        private void roll_w_bisect(Branch branch, T4 ready_slices, ref Slice last_slice)
-        {
-            List <Point2F> samples = sample_curve(branch.Curve, _sample_distance / 64.0);
-
-            Slice prev_slice = null;
-
-            int i = 0;
-
-            // non-initial slice
-            if (branch.Parent != null)
-            {
-                prev_slice = find_prev_slice(branch, samples[0], get_mic_radius(samples[0]), ready_slices);
-
-                if (prev_slice == null)
-                {
-                    Host.log("Failed to attach branch");
-                    return;
-                }
-            }
-            else
-            {
-                // top branch should always had a big circle at pt[0] !
-                //XXX: verify it !
-                Point2F pt = samples[0];
-                double radius = get_mic_radius(samples[0]);
-
-                Slice s = new Slice(pt, radius, _dir);
-                branch.Slices.Add(s);
-                // XXX: for now
-                insert_in_t4(ready_slices, s);
-                prev_slice = s;
-                i += 1;
-            }
-
-            while (i < samples.Count - 1)
-            {
-                int right = samples.Count - 1;
-                Slice s = find_slice_in_range(samples, ref i, ref right, prev_slice, ready_slices);
-                if (s.Is_undefined)
-                    return;
-                if (Math.Abs((s.Max_engagement - _max_engagement) / _max_engagement) > 0.25)
-                    return;
                 branch.Slices.Add(s);
                 insert_in_t4(ready_slices, s);
                 prev_slice = s;
@@ -1065,7 +853,7 @@ namespace Matmill
 
         private void attach_segments(Branch me, Segpool pool)
         {
-            Point2F running_end = (Point2F)me.Curve.Points[me.Curve.Points.Count - 1].Point;
+            Point2F running_end = me.Curve.End;
             List<Point2F> followers;
 
             while (true)
@@ -1076,7 +864,7 @@ namespace Matmill
                     break;
 
                 running_end = followers[0];
-                me.Curve.Add(point(running_end));   // continuation
+                me.Curve.Add(running_end);   // continuation
             }
 
             if (followers.Count == 0) return; // end of branch, go out
@@ -1084,8 +872,8 @@ namespace Matmill
             foreach (Point2F pt in followers)
             {
                 Branch b = new Branch(me);
-                b.Curve.Add(point(running_end));
-                b.Curve.Add(point(pt));
+                b.Curve.Add(running_end);
+                b.Curve.Add(pt);
                 attach_segments(b, pool);
 
                 me.Children.Add(b);
@@ -1131,7 +919,7 @@ namespace Matmill
 
             // craft new artifical start poly
             Branch root = new Branch(null);
-            root.Curve.Add(point(start_pt));
+            root.Curve.Add(start_pt);
             attach_segments(root, pool);
 
             return root;
@@ -1279,7 +1067,7 @@ namespace Matmill
             {
                 if (b.Entry != null)
                 {
-//                    path.Add(b.Entry);
+                    path.Add(b.Entry);
                 }
 
                 for (int sidx = 0; sidx < b.Slices.Count; sidx++)
@@ -1336,8 +1124,7 @@ namespace Matmill
 
             foreach (Branch b in traverse)
             {
-                //roll(b, ready_slices, ref last_slice);
-                roll_w_bisect(b, ready_slices, ref last_slice);
+                roll(b, ready_slices, ref last_slice);
             }
 
             return generate_path(root);

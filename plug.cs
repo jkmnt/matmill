@@ -46,13 +46,6 @@ namespace Matmill
             if (ret == null) return;
             double max_engagement = Math.Abs((double)ret) * cutter_d;
 
-            /*          ret = ThisApplication.PromptForValue("Enter sample distance", "s", typeof(double), "0.5");
-                        if (ret == null) return;
-                        double sample_distance = Math.Abs((double)ret);
-            */
-            double sample_distance = max_engagement / 10.0 / 2;
-            //double sample_distance = cutter_d / 10.0;
-
             Host.log("hello");
 
             if (CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer == null)
@@ -86,7 +79,7 @@ namespace Matmill
             Pocket_generator gen = new Pocket_generator(reg);
             gen.Cutter_d = cutter_d;
             gen.Max_engagement = max_engagement;
-            gen.Sample_distance = sample_distance;
+            gen.Min_engagement = max_engagement / 2.0;
             List<Entity> path = gen.run();
 
             Host.log("path generated");
@@ -104,7 +97,7 @@ namespace Matmill
         }
 
         static void debug_handler(object sender, EventArgs ars)
-        {            
+        {
             Host.log("hello");
 
             if (CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer == null)
@@ -138,7 +131,7 @@ namespace Matmill
             CamBamUI.MainUI.ActiveView.CADFile.EnsureActiveLayer(true);
             CamBamUI.MainUI.UndoBuffer.Add(CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities);
 
-            Pocket_generator gen = new Pocket_generator(reg);            
+            Pocket_generator gen = new Pocket_generator(reg);
             gen.Debug_t4(polys);
 
             CamBamUI.MainUI.ActiveView.ResumeRefresh();
@@ -154,7 +147,7 @@ namespace Matmill
             ui.Menus.mnuPlugins.DropDownItems.Add(popup);
 
             if (true)
-            { 
+            {
                 ToolStripMenuItem popup2 = new ToolStripMenuItem("MAT debug");
                 popup2.Click += debug_handler;
                 ui.Menus.mnuPlugins.DropDownItems.Add(popup2);
