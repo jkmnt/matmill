@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using CamBam;
 using CamBam.UI;
 using CamBam.CAD;
+using CamBam.Geom;
 
 namespace Matmill
 {
@@ -80,6 +81,8 @@ namespace Matmill
             gen.Cutter_d = cutter_d;
             gen.Max_engagement = max_engagement;
             gen.Min_engagement = max_engagement / 2.0;
+            gen.Mill_direction = RotationDirection.CCW;
+            //gen.Startpoint = new Point2F(-116, -3);
             List<Entity> path = gen.run();
 
             Host.log("path generated");

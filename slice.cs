@@ -7,15 +7,16 @@ using CamBam.Geom;
 namespace Matmill
 {
     class Slice
-    {        
+    {
+        private const double SEGMENTED_SLICE_ENGAGEMENT_K = 0;
+
         private Circle2F _ball;
-        private double _max_engagement;
         private List<Arc2F> _segments = new List<Arc2F>();
         private Slice _prev_slice;
+        private double _max_engagement;
         private bool _is_undefined = true;
 
         public Circle2F Ball { get { return _ball; } }
-        public Arc2F Arc { get { return _segments.Count == 1 ? _segments[0] : new Arc2F(_segments[0].P1, _segments[_segments.Count - 1].P2, _segments[0].Center, _segments[0].Direction); } }
         public bool Is_undefined { get { return _is_undefined; } }
 
         public Point2F Center { get { return _ball.Center; } }
@@ -24,7 +25,7 @@ namespace Matmill
         public double Max_engagement { get { return _max_engagement; } }
         public List<Arc2F> Segments { get { return _segments; } }
 
-        static private double angle_between_vectors(Vector2F v0, Vector2F v1, RotationDirection dir)
+        private double angle_between_vectors(Vector2F v0, Vector2F v1, RotationDirection dir)
         {
             double angle = Math.Atan2(Vector2F.Determinant(v0, v1), Vector2F.DotProduct(v0, v1));
             if (angle < 0)
@@ -32,32 +33,35 @@ namespace Matmill
             return (dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
         }
 
-        static public double Calc_max_engagement(Point2F center, double radius, Slice prev_slice)
+        static private double Calc_max_engagement(Point2F center, double radius, Slice prev_slice)
         {
             double delta_s = Point2F.Distance(center, prev_slice.Center);
             double delta_r = radius - prev_slice.Radius;
             return delta_s + delta_r;
         }
 
-        // temporary lightwidth slice
-        public Slice(Slice prev_slice, Point2F center, double radius, RotationDirection dir)
+        public void Get_extrema(ref Point2F min, ref Point2F max)
         {
-            _prev_slice = prev_slice;
-            _ball = new Circle2F(center, radius);
-            _max_engagement = Slice.Calc_max_engagement(center, radius, _prev_slice);
-
-            Line2F insects = _prev_slice.Ball.CircleIntersect(_ball);
-
-            if (insects.p1.IsUndefined || insects.p2.IsUndefined)
+            // special processing for the very first slice, treat it as ball
+            if (_prev_slice == null)
+            {
+                Get_ball_extrema(ref min, ref max);
                 return;
+            }
 
-            Arc2F arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
+            Arc2F arc;
+            if (_segments.Count == 1)
+                arc = _segments[0];
+            else
+                arc = new Arc2F(_segments[0].P1, _segments[_segments.Count - 1].P2, _segments[0].Center, _segments[0].Direction);
 
-            if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
-                arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
+            arc.GetExtrema(ref min, ref max);
+        }
 
-            _segments.Add(arc);
-            _is_undefined = false;
+        public void Get_ball_extrema(ref Point2F min, ref Point2F max)
+        {
+            min = new Point2F(_ball.Center.X - _ball.Radius, _ball.Center.Y - _ball.Radius);
+            max = new Point2F(_ball.Center.X + _ball.Radius, _ball.Center.Y + _ball.Radius);
         }
 
         public void Refine(List<Slice> colliding_slices, double end_clearance)
@@ -70,7 +74,9 @@ namespace Matmill
             // will define the min radius of circumscribed circle. clearance = 2 * R * sin (Pi / 5),
             // R = clearance / 2 / sin (Pi / 5)
 
-            // XXX: assert if segments count != 1
+            if (_segments.Count != 1)
+                throw new Exception("attempt to refine slice with n segments != 1");
+
             Arc2F arc = _segments[0];
 
             double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
@@ -78,11 +84,7 @@ namespace Matmill
                 return;
 
             if (colliding_slices.Contains(this))
-            {
-                // XXX: assert here
-                Host.err("contains ME !");
-                return;
-            }
+                throw new Exception("attempt to collide slice with itself");
 
             // now apply the colliding slices. to keep things simple and robust, we apply just one slice - the one who trims
             // us most (removed length of arc is greatest).
@@ -205,30 +207,48 @@ namespace Matmill
                 double e0 = _prev_slice.Center.DistanceTo(max_secant.p1) - _prev_slice.Radius;
                 double e1 = _prev_slice.Center.DistanceTo(max_secant.p2) - _prev_slice.Radius;
 
-                if (true)
-                {
-                    _max_engagement += Math.Max(e0, e1);
-                    _max_engagement /= 2.0;
-                }
-                else
-                {
-                    _max_engagement = Math.Max(e0, e1);
-                }
+                _max_engagement = (1 - SEGMENTED_SLICE_ENGAGEMENT_K) * Math.Max(e0, e1) + _max_engagement * SEGMENTED_SLICE_ENGAGEMENT_K;
             }
+        }
+
+        public Slice(Slice prev_slice, Point2F center, double radius, RotationDirection dir)
+        {
+            _prev_slice = prev_slice;
+            _ball = new Circle2F(center, radius);
+            _max_engagement = Slice.Calc_max_engagement(center, radius, _prev_slice);
+
+            Line2F insects = _prev_slice.Ball.CircleIntersect(_ball);
+
+            if (insects.p1.IsUndefined || insects.p2.IsUndefined)
+                return;
+
+            Arc2F arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
+
+            if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
+                arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
+
+            _segments.Add(arc);
+            _is_undefined = false;
         }
 
         public Slice(Point2F center, double radius, RotationDirection dir)
         {
             _ball = new Circle2F(center, radius);
             _max_engagement = 0;
-            // XXX: hack, just for now
-            //_arc = new Arc2F(center, radius, 0, 359);
-            Arc2F arc0 = new Arc2F(center, radius, 0, 120);
-            Arc2F arc1 = new Arc2F(center, radius, 120, 120);
-            Arc2F arc2 = new Arc2F(center, radius, 240, 120);
-            _segments.Add(arc0);
-            _segments.Add(arc1);
-            _segments.Add(arc2);
+
+            if (dir == RotationDirection.CCW)
+            {
+                _segments.Add(new Arc2F(center, radius, 0, 120));
+                _segments.Add(new Arc2F(center, radius, 120, 120));
+                _segments.Add(new Arc2F(center, radius, 240, 120));
+            }
+            else
+            {
+                _segments.Add(new Arc2F(center, radius, 0, -120));
+                _segments.Add(new Arc2F(center, radius, 240, -120));
+                _segments.Add(new Arc2F(center, radius, 120, -120));
+            }
+
             _is_undefined = false;
         }
     }

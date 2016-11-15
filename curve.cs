@@ -34,15 +34,14 @@ namespace Matmill
                 return _points[0];
 
             double offset = u * _len;
-            // TODO: use binary search
-            int seg;
-            for (seg = 1; seg < _seg_offsets.Count; seg++)
-            {
-                if (_seg_offsets[seg] > offset)
-                    break;
-            }
 
-            seg -= 1;
+            int seg = _seg_offsets.BinarySearch(offset);
+
+            // if there is no exact element found, binary search returns 1's complemented index of the
+            // first larger element, so we use it to find last smaller element
+            if (seg < 0)
+                seg = ~seg - 1;
+
             offset -= _seg_offsets[seg];
 
             Point2F p1 = _points[seg];
@@ -52,10 +51,6 @@ namespace Matmill
             double y = p1.Y + offset / dist * (p2.Y - p1.Y);
 
             return new Point2F(x, y);
-        }
-
-        public Curve()
-        {
         }
     }
 }

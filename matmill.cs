@@ -24,12 +24,14 @@ namespace Matmill
         private double _cutter_r = 1.5;
         private double _max_engagement = 3.0 * 0.4;
         private double _min_engagement = 3.0 * 0.1;
+        private Point2F _startpoint = Point2F.Undefined;
 
         private RotationDirection _dir = RotationDirection.CW;
 
         public double Cutter_d        {set { _cutter_r = value / 2.0;}}
         public double Max_engagement  {set { _max_engagement = value; } }
         public double Min_engagement  {set { _min_engagement = value; } }
+        public Point2F Startpoint     {set { _startpoint = value; } }
         public RotationDirection Mill_direction  {set { _dir = value; } }
 
         private Point3F point(Point2F p2)
@@ -56,6 +58,21 @@ namespace Matmill
             return points;
         }
 
+        private bool is_line_inside_region(Line2F line, bool should_analize_inner_intersections)
+        {
+            if (!_reg.OuterCurve.PointInPolyline(line.p1, GENERAL_TOLERANCE)) return false;     // p1 is outside of outer curve boundary
+            if (!_reg.OuterCurve.PointInPolyline(line.p2, GENERAL_TOLERANCE)) return false;  // p2 is outside of outer curve boundary
+            if (should_analize_inner_intersections && _reg.OuterCurve.LineIntersections(line, GENERAL_TOLERANCE).Length != 0) return false; // both endpoints are inside, but there are intersections, outer curve must be concave
+
+            foreach (Polyline hole in _reg.HoleCurves)
+            {
+                if (hole.PointInPolyline(line.p1, GENERAL_TOLERANCE)) return false;  // p1 is inside hole
+                if (hole.PointInPolyline(line.p2, GENERAL_TOLERANCE)) return false;  // p2 is inside hole
+                if (should_analize_inner_intersections && hole.LineIntersections(line, GENERAL_TOLERANCE).Length != 0) return false; // p1, p2 are outside hole, but there are intersections
+            }
+            return true;
+        }
+
         private List<Line2F> get_mat_segments()
         {
             List<Point2F> plist = new List<Point2F>();
@@ -64,7 +81,7 @@ namespace Matmill
             foreach (Polyline p in this._reg.HoleCurves)
                 plist.AddRange(sample_curve(p, _cutter_r / 10));
 
-            Host.log("Got {0} points", plist.Count);
+            Host.log("got {0} points", plist.Count);
 
             double[] xs = new double[plist.Count];
             double[] ys = new double[plist.Count];
@@ -117,7 +134,7 @@ namespace Matmill
 
             List<GraphEdge> edges = new Voronoi(GENERAL_TOLERANCE).generateVoronoi(xs, ys, min_x, max_x, min_y, max_y);
 
-            Host.log("voroning completed. Got {0} edges", edges.Count);
+            Host.log("voronoi partitioning completed. got {0} edges", edges.Count);
 
             List<Line2F> inner_segments = new List<Line2F>();
 
@@ -126,27 +143,11 @@ namespace Matmill
                 Line2F seg = new Line2F(e.x1, e.y1, e.x2, e.y2);
 
                 if (seg.Length() < GENERAL_TOLERANCE) continue;    // extra small segment, discard
-                if (!_reg.OuterCurve.PointInPolyline(seg.p1, GENERAL_TOLERANCE)) continue;  // p1 is outside of outer curve boundary
-                if (!_reg.OuterCurve.PointInPolyline(seg.p2, GENERAL_TOLERANCE)) continue;  // p2 is outside of outer curve boundary
-                if (ANALIZE_INNER_INTERSECTIONS && _reg.OuterCurve.LineIntersections(seg, GENERAL_TOLERANCE).Length != 0) continue; // both endpoints are inside, but there are intersections, outer curve must be concave
-
-                bool should_add = true;
-                foreach (Polyline hole in this._reg.HoleCurves)
-                {
-                    if (   hole.PointInPolyline(seg.p1, GENERAL_TOLERANCE)                      // p1 is inside hole
-                        || hole.PointInPolyline(seg.p2, GENERAL_TOLERANCE)                      // p2 is inside hole
-                        || (ANALIZE_INNER_INTERSECTIONS && hole.LineIntersections(seg, GENERAL_TOLERANCE).Length != 0))          // p1, p2 are outside hole, but there are intersections
-                    {
-                        should_add = false;
-                        break;
-                    }
-                }
-
-                if (should_add)
-                    inner_segments.Add(seg);
+                if (! is_line_inside_region(seg, ANALIZE_INNER_INTERSECTIONS)) continue;
+                inner_segments.Add(seg);
             }
 
-            Host.log("Got {0} inner segments", inner_segments.Count);
+            Host.log("got {0} inner segments", inner_segments.Count);
 
             return inner_segments;
         }
@@ -205,7 +206,7 @@ namespace Matmill
         {
             Point2F min = Point2F.Undefined;
             Point2F max = Point2F.Undefined;
-            s.Arc.GetExtrema(ref min, ref max);
+            s.Get_extrema(ref min, ref max);
             T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
             List<Slice> result = new List<Slice>();
             // TODO: is there a way to do it without repacking ?
@@ -280,28 +281,26 @@ namespace Matmill
         {
             Slice prev_slice = null;
 
-            // non-initial slice
+            if (branch.Curve.Points.Count == 0)
+                throw new Exception("branch with the empty curve");
+
+            Point2F start_pt = branch.Curve.Start;
+            double start_radius = get_mic_radius(start_pt);
+
             if (branch.Parent != null)
             {
-                Point2F pt = branch.Curve.Start;
-                prev_slice = find_prev_slice(branch, pt, get_mic_radius(pt), ready_slices);
-
+                // non-initial slice
+                prev_slice = find_prev_slice(branch, start_pt, start_radius, ready_slices);
                 if (prev_slice == null)
                 {
-                    Host.log("Failed to attach branch");
+                    Host.warn("failed to attach branch");
                     return;
                 }
             }
             else
             {
-                // top branch should always had a big circle at pt[0] !
-                //XXX: verify it !
-                Point2F pt = branch.Curve.Start;
-                double radius = get_mic_radius(pt);
-
-                Slice s = new Slice(pt, radius, _dir);
+                Slice s = new Slice(start_pt, start_radius, _dir);
                 branch.Slices.Add(s);
-                // XXX: for now
                 insert_in_t4(ready_slices, s);
                 prev_slice = s;
             }
@@ -350,19 +349,17 @@ namespace Matmill
                     }
                 }
 
-                if (s.Radius < _cutter_r)
-                    return;
+                if (s.Radius < _cutter_r) return;
 
                 double err = (s.Max_engagement - _max_engagement) / _max_engagement;
 
                 if (err > ENGAGEMENT_TOLERANCE_PERCENTAGE * 10)
                 {
-                    Host.err("Failed to create slice within stepover limit. Stopping slicing the branch.");
+                    Host.err("failed to create slice within stepover limit. stopping slicing the branch");
                     return;
                 }
 
-                if (s.Max_engagement < _min_engagement)
-                    return;
+                if (s.Max_engagement < _min_engagement) return;
 
                 if (branch.Slices.Count == 0 && last_slice != null)
                 {
@@ -409,53 +406,104 @@ namespace Matmill
 
         private Branch build_tree(List<Line2F> segments)
         {
-            // determine the start segment - the one with the largest mic
-            double largest_radius = double.MinValue;
-            Point2F start_pt = Point2F.Undefined;
-
             Segpool pool = new Segpool(segments.Count, GENERAL_TOLERANCE);
+            Branch root = new Branch(null);
+            Point2F tree_start = Point2F.Undefined;
 
-            // XXX: p2 is not analyzed
             Host.log("analyzing segments");
-            foreach (Line2F line in segments)
+            if (_startpoint.IsUndefined)
             {
-                double r = get_mic_radius(line.p1);
-                if (r < _cutter_r)
+                // automatic startpoint, choose the start segment - the one with the largest mic
+                double max_r = double.MinValue;
+
+                foreach (Line2F line in segments)
                 {
-                    // strange. maybe this segment is unmillable
-                    r = get_mic_radius(line.p2);
-                    if (r < _cutter_r)  // unmillable
+                    double r1 = get_mic_radius(line.p1);
+                    double r2 = get_mic_radius(line.p2);
+                    // discard segments unmillable from both sides
+                    if (r1 < _cutter_r && r2 < _cutter_r)
                         continue;
-                }
 
-                if (r > largest_radius)
+                    pool.Add(line);
+
+                    if (r1 > max_r)
+                    {
+                        max_r = r1;
+                        tree_start = line.p1;
+                    }
+                    if (r2 > max_r)
+                    {
+                        max_r = r2;
+                        tree_start = line.p2;
+                    }
+                }
+            }
+            else
+            {
+                // manual startpoint, seek the segment with the closest end to startpoint
+                if (! is_line_inside_region(new Line2F(_startpoint, _startpoint), false))
                 {
-                    largest_radius = r;
-                    start_pt = line.p1;
+                    Host.warn("startpoint is outside the pocket");
+                    return null;
+                }
+                if (get_mic_radius(_startpoint) < _cutter_r)
+                {
+                    Host.warn("startpoint radius < cutter radius");
+                    return null;
                 }
 
-                pool.Add(line);
+                // insert startpoing to root poly, it would be connected to seg_start later
+                root.Curve.Add(_startpoint);
+
+                double min_dist = double.MaxValue;
+
+                foreach (Line2F line in segments)
+                {
+                    double r1 = get_mic_radius(line.p1);
+                    double r2 = get_mic_radius(line.p2);
+                    // discard segments unmillable from both sides
+                    if (r1 < _cutter_r && r2 < _cutter_r)
+                        continue;
+
+                    pool.Add(line);
+
+                    double dist1 = _startpoint.DistanceTo(line.p1);
+                    double dist2 = _startpoint.DistanceTo(line.p2);
+
+                    if (dist1 < min_dist && is_line_inside_region(new Line2F(_startpoint, line.p1), true))
+                    {
+                        min_dist = dist1;
+                        tree_start = line.p1;
+                    }
+                    if (dist2 < min_dist && is_line_inside_region(new Line2F(_startpoint, line.p2), true))
+                    {
+                        min_dist = dist2;
+                        tree_start = line.p2;
+                    }
+                }
+            }
+
+            if (tree_start.IsUndefined)
+            {
+                Host.warn("failed to choose tree start point");
+                return null;
             }
 
             Host.log("done analyzing segments");
             Host.log("got {0} hashes", pool.N_hashes);
 
-            // XXX: startpoint may be undefined, fix it later
-
-            // craft new artifical start poly
-            Branch root = new Branch(null);
-            root.Curve.Add(start_pt);
+            root.Curve.Add(tree_start);
             attach_segments(root, pool);
-
             return root;
         }
 
         private void insert_in_t4(T4 t4, Slice slice)
         {
-            Circle2F circle = slice.Ball;
-            Point2F center = circle.Center;
-            double radius = circle.Radius;
-            t4.Add(new T4_rect(center.X - radius, center.Y - radius, center.X + radius, center.Y + radius), slice);
+            Point2F min = Point2F.Undefined;
+            Point2F max = Point2F.Undefined;
+            slice.Get_ball_extrema(ref min, ref max);
+            T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
+            t4.Add(rect, slice);
         }
 
         private void insert_in_t4(T4 t4, Polyline p)
@@ -482,8 +530,7 @@ namespace Matmill
                 }
                 else
                 {
-                    // XXX: assert here ?
-                    continue;
+                    throw new Exception("unknown segment type");
                 }
 
                 t4.Add(rect, seg);
@@ -549,7 +596,8 @@ namespace Matmill
                 }
             }
 
-            if (running_collides.Count == 0) return false;
+            if (running_collides.Count == 0)
+                return false;
 
             foreach (var ins in intersections)
             {
@@ -582,14 +630,22 @@ namespace Matmill
             return may_shortcut(a, b, colliders);
         }
 
-        private List<Entity> generate_path(Branch root)
+        private List<Entity> generate_path(List<Branch> traverse)
         {
             Slice last_slice = null;
 
             List<Entity> path = new List<Entity>();
 
-            foreach (Branch b in root.Df_traverse())
+            Slice root_slice = traverse[0].Slices[0];
+
+            // emit spiral toolpath for root
+            Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _dir);
+            path.Add(spiral);
+
+            for (int bidx = 0; bidx < traverse.Count; bidx++)
             {
+                Branch b = traverse[bidx];
+
                 if (b.Entry != null)
                 {
                     path.Add((Entity)b.Entry);
@@ -606,15 +662,15 @@ namespace Matmill
                     }
 
                     // emit segments
-                    for (int i = 0; i < s.Segments.Count; i++)
+                    for (int segidx = 0; segidx < s.Segments.Count; segidx++)
                     {
                         // connect segments
-                        if (i > 0)
+                        if (segidx > 0)
                         {
-//                            path.Add(new Line(s.Segments[i - 1].P2, s.Segments[i].P1));
+                            path.Add(new Line(s.Segments[segidx - 1].P2, s.Segments[segidx].P1));
                         }
 
-                        Arc arc = new Arc(s.Segments[i]);
+                        Arc arc = new Arc(s.Segments[segidx]);
                         arc.Tag = String.Format("me {0:F4}, so {1:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
                         path.Add(arc);
                     }
@@ -631,10 +687,11 @@ namespace Matmill
 
             Host.log("building tree");
             Branch root = build_tree(mat_lines);
-            Host.log("tree built");
-
             if (root == null)
+            {
+                Host.warn("failed to build tree");
                 return new List<Entity>();
+            }
 
             List<Branch> traverse = root.Df_traverse();
 
@@ -642,17 +699,14 @@ namespace Matmill
 //              CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(b.Curve);
 
             T4 ready_slices = new T4(_reg_t4.Rect);
-
-            //root.Df_visit(b => roll(b, ready_slices));
-
             Slice last_slice = null;
 
+            Host.log("generating slices");
             foreach (Branch b in traverse)
-            {
                 roll(b, ready_slices, ref last_slice);
-            }
 
-            return generate_path(root);
+            Host.log("generating path");
+            return generate_path(traverse);
         }
 
         public Pocket_generator(Region reg)
