@@ -96,62 +96,11 @@ namespace Matmill
             Host.log("done");
         }
 
-        static void debug_handler(object sender, EventArgs ars)
-        {
-            Host.log("hello");
-
-            if (CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer == null)
-                return;
-
-            object[] selection = CamBamUI.MainUI.ActiveView.SelectedEntities;
-            if (selection.Length == 0)
-                return;
-
-            List<Polyline> polys = new List<Polyline>();
-
-            foreach (object obj in selection)
-            {
-                if (obj is Polyline)
-                    polys.Add((Polyline)obj);
-            }
-
-            if (polys.Count == 0)
-                return;
-
-            CamBam.CAD.Region[] regs = CamBam.CAD.Region.CreateFromPolylines(polys.ToArray());
-
-            if (regs.Length < 1)
-                return;
-
-            CamBam.CAD.Region reg = regs[0];
-
-            CamBamUI.MainUI.ActiveView.SuspendRefresh();
-            CamBamUI.MainUI.ActiveView.CADFile.Modified = true;
-            CamBamUI.MainUI.UndoBuffer.AddUndoPoint("matmill");
-            CamBamUI.MainUI.ActiveView.CADFile.EnsureActiveLayer(true);
-            CamBamUI.MainUI.UndoBuffer.Add(CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities);
-
-            Pocket_generator gen = new Pocket_generator(reg);
-            gen.Debug_t4(polys);
-
-            CamBamUI.MainUI.ActiveView.ResumeRefresh();
-            CamBamUI.MainUI.ActiveView.UpdateViewport();
-
-            Host.log("done");
-        }
-
         public static void InitPlugin(CamBamUI ui)
         {
             ToolStripMenuItem popup = new ToolStripMenuItem("MAT");
             popup.Click += popup_handler;
             ui.Menus.mnuPlugins.DropDownItems.Add(popup);
-
-            if (true)
-            {
-                ToolStripMenuItem popup2 = new ToolStripMenuItem("MAT debug");
-                popup2.Click += debug_handler;
-                ui.Menus.mnuPlugins.DropDownItems.Add(popup2);
-            }
         }
     }
 }
