@@ -22,16 +22,20 @@ namespace Matmill
         private readonly T4 _reg_t4;
 
         private double _cutter_r = 1.5;
+        private double _margin = 0;
         private double _max_engagement = 3.0 * 0.4;
         private double _min_engagement = 3.0 * 0.1;
         private Point2F _startpoint = Point2F.Undefined;
+        private bool _return_to_base = false;
 
         private RotationDirection _dir = RotationDirection.CW;
 
         public double Cutter_d        {set { _cutter_r = value / 2.0;}}
         public double Max_engagement  {set { _max_engagement = value; } }
         public double Min_engagement  {set { _min_engagement = value; } }
+        public double Margin          {set { _margin = value; } }
         public Point2F Startpoint     {set { _startpoint = value; } }
+        public bool Return_to_base    {set { _return_to_base = value; } }
         public RotationDirection Mill_direction  {set { _dir = value; } }
 
         private Point3F point(Point2F p2)
@@ -166,13 +170,8 @@ namespace Matmill
                     radius = dist;
             }
 
-            // account for margin just in one subrtract. Nice !
-            if (true)
-            {
-                radius -= _cutter_r;
-            }
-
-            return radius;
+            // account for margin in just one subrtract. Nice !
+            return radius - _cutter_r - _margin;
         }
 
         private Slice find_prev_slice(Branch branch, Point2F pt, double radius, T4 ready_slices)
@@ -216,14 +215,17 @@ namespace Matmill
         }
 
         // find least common ancestor for the both branches
-        Entity switch_branch(Slice dst, Slice src, T4 ready_slices)
+        Entity switch_branch(Slice dst, Slice src, T4 ready_slices, Point2F dst_pt, Point2F src_pt)
         {
             List<Slice> path = new List<Slice>();
+
+            Point2F current = src_pt.IsUndefined ? src.Segments[src.Segments.Count - 1].P2 : src_pt;
+            Point2F end = dst_pt.IsUndefined ? dst.Segments[0].P1 : dst_pt;
 
             // continuation
             if (dst.Prev == src)
             {
-                return (Entity)new Line(src.Segments[src.Segments.Count - 1].P2, dst.Segments[0].P1);
+                return (Entity)new Line(current, end);
             }
             else
             {
@@ -254,8 +256,6 @@ namespace Matmill
 
                 // trace path
                 Polyline p = new Polyline();
-                Point2F current = src.Segments[src.Segments.Count - 1].P2;
-                Point2F end = dst.Segments[0].P1;
 
                 p.Add(point(current));
 
@@ -275,6 +275,11 @@ namespace Matmill
 
                 return (Entity)p;
             }
+        }
+
+        Entity switch_branch(Slice dst, Slice src, T4 ready_slices)
+        {
+            return switch_branch(dst, src, ready_slices, Point2F.Undefined, Point2F.Undefined);
         }
 
         private void roll(Branch branch, T4 ready_slices, ref Slice last_slice)
@@ -630,7 +635,7 @@ namespace Matmill
             return may_shortcut(a, b, colliders);
         }
 
-        private List<Entity> generate_path(List<Branch> traverse)
+        private List<Entity> generate_path(List<Branch> traverse, T4 ready_slices)
         {
             Slice last_slice = null;
 
@@ -678,6 +683,12 @@ namespace Matmill
                 }
             }
 
+            // hacky
+            if (_return_to_base)
+            {
+                path.Add(switch_branch(root_slice, last_slice, ready_slices, root_slice.Segments[0].Center, Point2F.Undefined));
+            }
+
             return path;
         }
 
@@ -706,7 +717,7 @@ namespace Matmill
                 roll(b, ready_slices, ref last_slice);
 
             Host.log("generating path");
-            return generate_path(traverse);
+            return generate_path(traverse, ready_slices);
         }
 
         public Pocket_generator(Region reg)

@@ -74,6 +74,7 @@
     <Compile Include="branch.cs" />
     <Compile Include="curve.cs" />
     <Compile Include="matmill.cs" />
+    <Compile Include="mop.cs" />
     <Compile Include="plug.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="segpool.cs" />

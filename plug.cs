@@ -1,6 +1,8 @@
 using System;
 using System.Windows.Forms;
 using System.Collections.Generic;
+using System.Xml.Serialization;
+using System.IO;
 
 using CamBam;
 using CamBam.UI;
@@ -99,11 +101,36 @@ namespace Matmill
             Host.log("done");
         }
 
+        static void mop_onclick(object sender, EventArgs ars)
+        {
+			if (!PolylineUtils.ConfirmSelected(CamBamUI.MainUI.ActiveView))
+			{
+				return;
+			}
+
+			Mop_matmill mop = new Mop_matmill(CamBamUI.MainUI.ActiveView.CADFile, CamBamUI.MainUI.ActiveView.Selection);
+            CamBamUI.MainUI.InsertMOP(mop);
+        }
+
         public static void InitPlugin(CamBamUI ui)
         {
             ToolStripMenuItem popup = new ToolStripMenuItem("MAT");
             popup.Click += popup_handler;
             ui.Menus.mnuPlugins.DropDownItems.Add(popup);
+
+            ToolStripMenuItem mop_popup = new ToolStripMenuItem("MAT mill");
+            mop_popup.Click += mop_onclick;
+            ui.Menus.mnuPlugins.DropDownItems.Add(mop_popup);
+
+            if (CADFile.ExtraTypes == null)
+			{
+				CADFile.ExtraTypes = new List<Type>();
+			}
+			CADFile.ExtraTypes.Add(typeof(Mop_matmill));
+			Mop_matmill o = new Mop_matmill();
+			XmlSerializer xmlSerializer = new XmlSerializer(typeof(Mop_matmill));
+			MemoryStream stream = new MemoryStream();
+			xmlSerializer.Serialize(stream, o);
         }
     }
 }
