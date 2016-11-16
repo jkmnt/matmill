@@ -52,21 +52,15 @@ namespace Matmill
                 _pool[h].Remove(seg);
         }
 
-        public void Add(Line2F seg)
+        // add line hashed by the beginning or end point
+        public void Add(Line2F seg, bool reverse)
         {
-            ulong[] h1 = hash(seg.p1);
+            ulong[] h = hash(reverse ? seg.p2 : seg.p1);
 
-            insert_seg(h1[0], seg);
-            insert_seg(h1[1], seg);
-            insert_seg(h1[2], seg);
-            insert_seg(h1[3], seg);
-
-            ulong[] h2 = hash(seg.p2);
-
-            insert_seg(h2[0], seg);
-            insert_seg(h2[1], seg);
-            insert_seg(h2[2], seg);
-            insert_seg(h2[3], seg);
+            insert_seg(h[0], seg);
+            insert_seg(h[1], seg);
+            insert_seg(h[2], seg);
+            insert_seg(h[3], seg);
         }
 
         public void Remove(Line2F seg)

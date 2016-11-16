@@ -84,7 +84,7 @@ namespace Matmill
             gen.Max_engagement = max_engagement;
             gen.Min_engagement = max_engagement / 2.0;
             gen.Mill_direction = RotationDirection.CCW;
-            //gen.Startpoint = new Point2F(-116, -3);
+            gen.Emit_options = Pocket_generator_emits.BRANCH_ENTRY | Pocket_generator_emits.LEADIN_SPIRAL | Pocket_generator_emits.DEBUG_MAT;
             List<Entity> path = gen.run();
 
             Host.log("path generated");

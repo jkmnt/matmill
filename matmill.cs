@@ -11,6 +11,16 @@ using Voronoi2;
 
 namespace Matmill
 {
+    enum Pocket_generator_emits
+    {
+        BRANCH_ENTRY = 0x01,
+        CHORDS = 0x02,
+        SEGMENTS_CONNECTORS = 0x04,
+        LEADIN_SPIRAL = 0x08,
+        RETURN_TO_BASE = 0x10,
+        DEBUG_MAT = 0x20,
+    }
+
     class Pocket_generator
     {
         private const double GENERAL_TOLERANCE = 0.001;
@@ -26,17 +36,17 @@ namespace Matmill
         private double _max_engagement = 3.0 * 0.4;
         private double _min_engagement = 3.0 * 0.1;
         private Point2F _startpoint = Point2F.Undefined;
-        private bool _return_to_base = false;
+        private Pocket_generator_emits _emit_options = Pocket_generator_emits.BRANCH_ENTRY | Pocket_generator_emits.CHORDS | Pocket_generator_emits.LEADIN_SPIRAL;
 
         private RotationDirection _dir = RotationDirection.CW;
 
-        public double Cutter_d        {set { _cutter_r = value / 2.0;}}
-        public double Max_engagement  {set { _max_engagement = value; } }
-        public double Min_engagement  {set { _min_engagement = value; } }
-        public double Margin          {set { _margin = value; } }
-        public Point2F Startpoint     {set { _startpoint = value; } }
-        public bool Return_to_base    {set { _return_to_base = value; } }
-        public RotationDirection Mill_direction  {set { _dir = value; } }
+        public double Cutter_d                        {set { _cutter_r = value / 2.0;}}
+        public double Max_engagement                  {set { _max_engagement = value; } }
+        public double Min_engagement                  {set { _min_engagement = value; } }
+        public double Margin                          {set { _margin = value; } }
+        public Point2F Startpoint                     {set { _startpoint = value; } }
+        public Pocket_generator_emits Emit_options    {set { _emit_options = value; } }
+        public RotationDirection Mill_direction       {set { _dir = value; } }
 
         private Point3F point(Point2F p2)
         {
@@ -46,6 +56,11 @@ namespace Matmill
         private Point2F point(Point3F p3)
         {
             return new Point2F(p3.X, p3.Y);
+        }
+
+        private bool should_emit(Pocket_generator_emits mask)
+        {
+            return (int)(_emit_options & mask) != 0;
         }
 
         private List<Point2F> sample_curve(Polyline p, double step)
@@ -416,6 +431,15 @@ namespace Matmill
             Point2F tree_start = Point2F.Undefined;
 
             Host.log("analyzing segments");
+
+            // a lot of stuff going on here.
+            // segments are analyzed for mic radius from both ends. passed segmens are inserted in segpool
+            // hashed by one or both endpoints. if endpoint is not hashed, segment wouldn't be followed
+            // from that side, preventing formation of bad tree.
+            // segments are connected later in a greedy fashion, hopefully forming a mat covering all
+            // pocket.
+            // simultaneously we are looking for the tree root point - automatic, as a point with the largest mic,
+            // or manually, as a mat segment nearest to the user specified start point.
             if (_startpoint.IsUndefined)
             {
                 // automatic startpoint, choose the start segment - the one with the largest mic
@@ -425,21 +449,24 @@ namespace Matmill
                 {
                     double r1 = get_mic_radius(line.p1);
                     double r2 = get_mic_radius(line.p2);
-                    // discard segments unmillable from both sides
-                    if (r1 < _cutter_r && r2 < _cutter_r)
-                        continue;
 
-                    pool.Add(line);
-
-                    if (r1 > max_r)
+                    if (r1 >= _cutter_r)
                     {
-                        max_r = r1;
-                        tree_start = line.p1;
+                        pool.Add(line, false);
+                        if (r1 > max_r)
+                        {
+                            max_r = r1;
+                            tree_start = line.p1;
+                        }
                     }
-                    if (r2 > max_r)
+                    if (r2 >= _cutter_r)
                     {
-                        max_r = r2;
-                        tree_start = line.p2;
+                        pool.Add(line, true);
+                        if (r2 > max_r)
+                        {
+                            max_r = r2;
+                            tree_start = line.p2;
+                        }
                     }
                 }
             }
@@ -466,24 +493,26 @@ namespace Matmill
                 {
                     double r1 = get_mic_radius(line.p1);
                     double r2 = get_mic_radius(line.p2);
-                    // discard segments unmillable from both sides
-                    if (r1 < _cutter_r && r2 < _cutter_r)
-                        continue;
 
-                    pool.Add(line);
-
-                    double dist1 = _startpoint.DistanceTo(line.p1);
-                    double dist2 = _startpoint.DistanceTo(line.p2);
-
-                    if (dist1 < min_dist && is_line_inside_region(new Line2F(_startpoint, line.p1), true))
+                    if (r1 >= _cutter_r)
                     {
-                        min_dist = dist1;
-                        tree_start = line.p1;
+                        pool.Add(line, false);
+                        double dist = _startpoint.DistanceTo(line.p1);
+                        if (dist < min_dist && is_line_inside_region(new Line2F(_startpoint, line.p1), true))
+                        {
+                            min_dist = dist;
+                            tree_start = line.p1;
+                        }
                     }
-                    if (dist2 < min_dist && is_line_inside_region(new Line2F(_startpoint, line.p2), true))
+                    if (r2 >= _cutter_r)
                     {
-                        min_dist = dist2;
-                        tree_start = line.p2;
+                        pool.Add(line, true);
+                        double dist = _startpoint.DistanceTo(line.p2);
+                        if (dist < min_dist && is_line_inside_region(new Line2F(_startpoint, line.p2), true))
+                        {
+                            min_dist = dist;
+                            tree_start = line.p2;
+                        }
                     }
                 }
             }
@@ -644,14 +673,25 @@ namespace Matmill
             Slice root_slice = traverse[0].Slices[0];
 
             // emit spiral toolpath for root
-            Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _dir);
-            path.Add(spiral);
+            if (should_emit(Pocket_generator_emits.LEADIN_SPIRAL))
+            {
+                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _dir);
+                path.Add(spiral);
+            }
 
             for (int bidx = 0; bidx < traverse.Count; bidx++)
             {
                 Branch b = traverse[bidx];
 
-                if (b.Entry != null)
+                if (should_emit(Pocket_generator_emits.DEBUG_MAT))
+                {
+                    Polyline p = new Polyline();
+                    foreach (Point2F pt in b.Curve.Points)
+                        p.Add(point(pt));
+                    path.Add((Entity)p);
+                }
+
+                if (should_emit(Pocket_generator_emits.BRANCH_ENTRY) && b.Entry != null)
                 {
                     path.Add((Entity)b.Entry);
                 }
@@ -660,23 +700,23 @@ namespace Matmill
                 {
                     Slice s = b.Slices[sidx];
 
-                    // connect following branch slices
-                    if (sidx > 0)
+                    // connect following branch slices with chords
+                    if (should_emit(Pocket_generator_emits.CHORDS) && sidx > 0)
                     {
-                        //path.Add(new Line(last_slice.Segments[last_slice.Segments.Count - 1].P2, s.Segments[0].P1));
+                        path.Add(new Line(last_slice.Segments[last_slice.Segments.Count - 1].P2, s.Segments[0].P1));
                     }
 
                     // emit segments
                     for (int segidx = 0; segidx < s.Segments.Count; segidx++)
                     {
                         // connect segments
-                        if (segidx > 0)
+                        if (should_emit(Pocket_generator_emits.SEGMENTS_CONNECTORS) && segidx > 0)
                         {
                             path.Add(new Line(s.Segments[segidx - 1].P2, s.Segments[segidx].P1));
                         }
 
                         Arc arc = new Arc(s.Segments[segidx]);
-                        arc.Tag = String.Format("me {0:F4}, so {1:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
+                        //arc.Tag = String.Format("me {0:F4}, so {1:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
                         path.Add(arc);
                     }
                     last_slice = s;
@@ -684,7 +724,7 @@ namespace Matmill
             }
 
             // hacky
-            if (_return_to_base)
+            if (should_emit(Pocket_generator_emits.RETURN_TO_BASE))
             {
                 path.Add(switch_branch(root_slice, last_slice, ready_slices, root_slice.Segments[0].Center, Point2F.Undefined));
             }
@@ -705,9 +745,6 @@ namespace Matmill
             }
 
             List<Branch> traverse = root.Df_traverse();
-
-//          foreach (Branch b in traverse)
-//              CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(b.Curve);
 
             T4 ready_slices = new T4(_reg_t4.Rect);
             Slice last_slice = null;
