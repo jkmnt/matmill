@@ -187,7 +187,7 @@ namespace Matmill
 
                 CamBam.CAD.Region reg = regs[0];
 
-                Pocket_generator gen = new Pocket_generator(reg);
+                Pocket_generator gen = new Pocket_generator(reg.OuterCurve, reg.HoleCurves);
                 gen.Cutter_d = base.ToolDiameter.Cached;
                 gen.Max_engagement = base.ToolDiameter.Cached * this.StepOver.Cached;
                 gen.Min_engagement = base.ToolDiameter.Cached * this.StepOver.Cached * this._min_stepover_percentage.Cached;

@@ -28,7 +28,9 @@ namespace Matmill
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
         private const double ENGAGEMENT_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
 
-        private readonly Region _reg;
+        private readonly Polyline _outline;
+        private readonly Polyline[] _islands;
+
         private readonly T4 _reg_t4;
 
         private double _cutter_r = 1.5;
@@ -36,9 +38,8 @@ namespace Matmill
         private double _max_engagement = 3.0 * 0.4;
         private double _min_engagement = 3.0 * 0.1;
         private Point2F _startpoint = Point2F.Undefined;
-        private Pocket_generator_emits _emit_options = Pocket_generator_emits.BRANCH_ENTRY | Pocket_generator_emits.CHORDS | Pocket_generator_emits.LEADIN_SPIRAL;
-
         private RotationDirection _dir = RotationDirection.CW;
+        private Pocket_generator_emits _emit_options = Pocket_generator_emits.BRANCH_ENTRY | Pocket_generator_emits.CHORDS | Pocket_generator_emits.LEADIN_SPIRAL;
 
         public double Cutter_d                        {set { _cutter_r = value / 2.0;}}
         public double Max_engagement                  {set { _max_engagement = value; } }
@@ -79,15 +80,15 @@ namespace Matmill
 
         private bool is_line_inside_region(Line2F line, bool should_analize_inner_intersections)
         {
-            if (!_reg.OuterCurve.PointInPolyline(line.p1, GENERAL_TOLERANCE)) return false;     // p1 is outside of outer curve boundary
-            if (!_reg.OuterCurve.PointInPolyline(line.p2, GENERAL_TOLERANCE)) return false;  // p2 is outside of outer curve boundary
-            if (should_analize_inner_intersections && _reg.OuterCurve.LineIntersections(line, GENERAL_TOLERANCE).Length != 0) return false; // both endpoints are inside, but there are intersections, outer curve must be concave
+            if (!_outline.PointInPolyline(line.p1, GENERAL_TOLERANCE)) return false;     // p1 is outside of outer curve boundary
+            if (!_outline.PointInPolyline(line.p2, GENERAL_TOLERANCE)) return false;  // p2 is outside of outer curve boundary
+            if (should_analize_inner_intersections && _outline.LineIntersections(line, GENERAL_TOLERANCE).Length != 0) return false; // both endpoints are inside, but there are intersections, outer curve must be concave
 
-            foreach (Polyline hole in _reg.HoleCurves)
+            foreach (Polyline island in _islands)
             {
-                if (hole.PointInPolyline(line.p1, GENERAL_TOLERANCE)) return false;  // p1 is inside hole
-                if (hole.PointInPolyline(line.p2, GENERAL_TOLERANCE)) return false;  // p2 is inside hole
-                if (should_analize_inner_intersections && hole.LineIntersections(line, GENERAL_TOLERANCE).Length != 0) return false; // p1, p2 are outside hole, but there are intersections
+                if (island.PointInPolyline(line.p1, GENERAL_TOLERANCE)) return false;  // p1 is inside hole
+                if (island.PointInPolyline(line.p2, GENERAL_TOLERANCE)) return false;  // p2 is inside hole
+                if (should_analize_inner_intersections && island.LineIntersections(line, GENERAL_TOLERANCE).Length != 0) return false; // p1, p2 are outside hole, but there are intersections
             }
             return true;
         }
@@ -96,8 +97,8 @@ namespace Matmill
         {
             List<Point2F> plist = new List<Point2F>();
 
-            plist.AddRange(sample_curve(this._reg.OuterCurve, _cutter_r / 10));
-            foreach (Polyline p in this._reg.HoleCurves)
+            plist.AddRange(sample_curve(_outline, _cutter_r / 10));
+            foreach (Polyline p in _islands)
                 plist.AddRange(sample_curve(p, _cutter_r / 10));
 
             Host.log("got {0} points", plist.Count);
@@ -757,22 +758,21 @@ namespace Matmill
             return generate_path(traverse, ready_slices);
         }
 
-        public Pocket_generator(Region reg)
+        public Pocket_generator(Polyline outline, Polyline[] islands)
         {
-            _reg = reg;
+            _outline = outline;
+            _islands = islands;
 
             Point3F min = Point3F.Undefined;
             Point3F max = Point3F.Undefined;
 
-            _reg.GetExtrema(ref min, ref max);
+            _outline.GetExtrema(ref min, ref max);
 
             _reg_t4 = new T4(new T4_rect(min.X - 1, min.Y - 1, max.X + 1, max.Y + 1));
 
-            insert_in_t4(_reg_t4, _reg.OuterCurve);
-            foreach (Polyline hole in reg.HoleCurves)
-            {
-                insert_in_t4(_reg_t4, hole);
-            }
+            insert_in_t4(_reg_t4, _outline);
+            foreach (Polyline island in _islands)
+                insert_in_t4(_reg_t4, island);
         }
     }
 }

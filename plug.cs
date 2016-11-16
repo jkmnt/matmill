@@ -79,7 +79,7 @@ namespace Matmill
             CamBamUI.MainUI.ActiveView.CADFile.EnsureActiveLayer(true);
             CamBamUI.MainUI.UndoBuffer.Add(CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities);
 
-            Pocket_generator gen = new Pocket_generator(reg);
+            Pocket_generator gen = new Pocket_generator(reg.OuterCurve, reg.HoleCurves);
             gen.Cutter_d = cutter_d;
             gen.Max_engagement = max_engagement;
             gen.Min_engagement = max_engagement / 2.0;
