@@ -19,6 +19,7 @@ namespace Matmill
     public class Mop_matmill : MOPFromGeometry
     {
         List<List<Entity>> _pockets = new List<List<Entity>>();
+        List<Surface> _cut_widths = new List<Surface>();
 
         protected CBValue<double> _stepover;
         protected CBValue<double> _min_stepover_percentage;
@@ -170,15 +171,16 @@ namespace Matmill
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage.Cached;
 
             Pocket_generator_emits to_emit = Pocket_generator_emits.LEADIN_SPIRAL | Pocket_generator_emits.BRANCH_ENTRY;
-//                    if (get_z_layers().Length > 1)
-//                        to_emit |= Pocket_generator_emits.RETURN_TO_BASE;
+            if (get_z_layers().Length > 1)
+                to_emit |= Pocket_generator_emits.RETURN_TO_BASE;
             gen.Emit_options = to_emit;
 
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
             gen.Margin = base.RoughingClearance.Cached;
 
-            // XXX: for now
-            gen.Mill_direction = RotationDirection.CCW;
+            int spindle_dir = (int)(base.SpindleDirection.Cached != SpindleDirectionOptions.Off ? SpindleDirection.Cached : SpindleDirectionOptions.CW);
+            gen.Mill_direction = (RotationDirection)(_milling_direction.Cached == MillingDirectionOptions.Conventional ?  spindle_dir : -spindle_dir);
+
             return gen.run();
         }
 
@@ -187,6 +189,7 @@ namespace Matmill
 			try
 			{
                 _pockets.Clear();
+                _cut_widths.Clear();
 				GC.Collect();
 
                 // XXX: is it needed ?
@@ -219,23 +222,9 @@ namespace Matmill
                         _pockets.Add(pocket);
                 }
 
-//  				base.Toolpaths2 = toolpathSequence;
-//  				base.Toolpaths2.ToolDiameter = base.ToolDiameter.Cached;
-//  				this._GenerateToolpathDepthLevels();
-//  				base.Toolpaths2.BuildSimpleCutOrder();
-//  				//double distanceThreshold = this.GetDistanceThreshold();
-//                  double distanceThreshold = this.ToolDiameter.Cached * 0.5;
-//  				double minimumSize = distanceThreshold * 0.25;
-//  				base.Toolpaths2.InsertLeadIns(this.LeadInMove.Cached, base.PlungeFeedrate.Cached, base.CutFeedrate.Cached, base.StockSurface.Cached, distanceThreshold, minimumSize, this.DepthIncrement.Cached, this.TargetDepth.Cached, this.GetZLayers());
-//  				base.Toolpaths2.InsertLeadOuts(this.LeadOutMove.Cached, base.PlungeFeedrate.Cached, base.CutFeedrate.Cached, base.StockSurface.Cached, distanceThreshold, minimumSize, this.DepthIncrement.Cached, this.TargetDepth.Cached, this.GetZLayers());
-//  				base.Toolpaths2.DetectRapids(this, this.GetDistanceThreshold());
-//  				bool leadin_cutwidths = false;
-//  				if ((this.LeadInMove.Cached != null && this.LeadInMove.Cached.LeadInType == LeadInTypeOptions.Tangent) || (this.LeadOutMove.Cached != null && this.LeadOutMove.Cached.LeadInType == LeadInTypeOptions.Tangent))
-//  				{
-//  					leadin_cutwidths = true;
-//  				}
-//  				base.Toolpaths2.CalculateCutWidths(base.ToolDiameter.Cached, leadin_cutwidths);
-//  				base.ToolpathAnalysis();
+                double[] depths = get_z_layers();
+                update_cut_widths(depths[depths.Length - 1]);
+
                 if (this.MachineOpStatus == MachineOpStatus.Unknown)
                 {
                     this.MachineOpStatus = MachineOpStatus.OK;
@@ -310,7 +299,7 @@ namespace Matmill
             }
             else
             {
-                foreach (double depth in depths)                    
+                foreach (double depth in depths)
                 {
                     foreach (List<Entity> pocket in _pockets)
                         emit_pocket_at_depth(gcg, pocket, depth);
@@ -351,6 +340,36 @@ namespace Matmill
             }
         }
 
+        private void update_cut_widths(double depth)
+        {
+            _cut_widths.Clear();
+
+            foreach (List<Entity> pocket in _pockets)
+            {
+                foreach(Entity e in pocket)
+                {
+                    Polyline p;
+                    if (e is Arc)
+                        p = ((Arc)e).ToPolyline();
+                    else
+                        p = (Polyline)e;
+
+                    // TODO: maybe a single transform of surface will suffice ?
+                    if (base.Transform.Cached != null && ! base.Transform.Cached.IsIdentity())
+                    {
+                        p = (Polyline) p.Clone();
+                        p.ApplyTransformation(base.Transform.Cached);
+                    }
+
+                    PolylineToMesh mesh = new PolylineToMesh(p);
+    				Matrix4x4F xm = Matrix4x4F.Translation(0.0, 0.0, depth - 0.001);
+    				Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
+    				surface.ApplyTransformation(xm);
+    				_cut_widths.Add(surface);
+                }
+            }
+		}
+
 
         public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
         {
@@ -365,144 +384,25 @@ namespace Matmill
                 paint_pocket(iv, d3d, arccolor, linecolor, pocket, depths);
             }
 
+            if (this._CADFile.ShowCutWidths)
+            {
+                d3d.LineColor = CamBamConfig.Defaults.CutWidthColor;
+                d3d.LineStyle = LineStyle.Solid;
+                d3d.LineWidth = 0F;
+                d3d.ModelTransform = Matrix4x4F.Identity;
+                d3d.UseLighting = false;
+                foreach (Surface s in _cut_widths)
+                {
+                    s.Paint(d3d);
+                }
+                d3d.UseLighting = true;
+            }
+
         	if (selected)
         	{
         		base.PaintStartPoint(iv, d3d);
         	}
 
-//            if (_path)
-//            {
-//                Color color = Color.Empty;
-//                Color color2 = Color.Empty;
-//                int num = -1;
-//                int num2 = -1;
-//                int num3 = -1;
-//                int num4 = -1;
-////      		if (CamBamUI.MainUI.ToolpathFilterVisible)
-////      		{
-////      			ToolpathViewFilter toolpathViewFilter = CamBamConfig.Defaults.ToolpathViewFilter;
-////      			if (toolpathViewFilter.FilterZDepth)
-////      			{
-////      				num3 = toolpathViewFilter.ZDepth;
-////      			}
-////      			if (toolpathViewFilter.FilterToolpathIndex)
-////      			{
-////      				num4 = toolpathViewFilter.ToolpathIndex;
-////      			}
-////      			if (toolpathViewFilter.UseCutToolpathColor && (toolpathViewFilter.FilterZDepth || toolpathViewFilter.FilterToolpathIndex))
-////      			{
-////      				color = toolpathViewFilter.CutToolpathColor;
-////      				num = toolpathViewFilter.CutToolpathLineWidth;
-////      			}
-////      			if (toolpathViewFilter.UseToolpathColor && (toolpathViewFilter.FilterZDepth || toolpathViewFilter.FilterToolpathIndex))
-////      			{
-////      				color2 = toolpathViewFilter.ToolpathColor;
-////      				num2 = toolpathViewFilter.ToolpathLineWidth;
-////      			}
-////      		}
-//                int num5 = 0;
-//                if (base.Toolpaths2.CutOrder != null)
-//                {
-//                    using (List<int>.Enumerator enumerator = base.Toolpaths2.CutOrder.GetEnumerator())
-//                    {
-//                        while (enumerator.MoveNext())
-//                        {
-//                            int current = enumerator.Current;
-//                            ToolpathItem toolpathItem = base.Toolpaths2.Toolpaths[current];
-//                            Color arcColor = arccolor;
-//                            Color lineColor = linecolor;
-//                            d3d.LineWidth = 1f;
-//                            if (num3 > -1)
-//                            {
-//                                if (toolpathItem.DepthIndex < num3)
-//                                {
-//                                    if (color.IsEmpty)
-//                                    {
-//                                        continue;
-//                                    }
-//                                    arcColor = color;
-//                                    lineColor = color;
-//                                    d3d.LineWidth = (float)num;
-//                                }
-//                                else
-//                                {
-//                                    if (toolpathItem.DepthIndex > num3)
-//                                    {
-//                                        continue;
-//                                    }
-//                                    if (!color2.IsEmpty)
-//                                    {
-//                                        arcColor = color2;
-//                                        lineColor = color2;
-//                                        d3d.LineWidth = (float)num2;
-//                                    }
-//                                }
-//                            }
-//                            if (num4 > -1)
-//                            {
-//                                if (num5 < num4)
-//                                {
-//                                    if (color.IsEmpty)
-//                                    {
-//                                        num5++;
-//                                        continue;
-//                                    }
-//                                    arcColor = color;
-//                                    lineColor = color;
-//                                    d3d.LineWidth = (float)num;
-//                                }
-//                                else
-//                                {
-//                                    if (num5 > num4)
-//                                    {
-//                                        num5++;
-//                                        continue;
-//                                    }
-//                                    if (!color2.IsEmpty)
-//                                    {
-//                                        arcColor = color2;
-//                                        lineColor = color2;
-//                                        d3d.LineWidth = (float)num2;
-//                                    }
-//                                }
-//                                num5++;
-//                            }
-//                            Polyline toolpath = toolpathItem.Toolpath;
-//                            Matrix4x4F matrix4x4F = new Matrix4x4F();
-//                            matrix4x4F.Translate(0.0, 0.0, toolpathItem.ZOffset);
-//                            if (base.Transform.Cached != null)
-//                            {
-//                                matrix4x4F *= base.Transform.Cached;
-//                            }
-//                            d3d.ModelTransform = matrix4x4F;
-//                            toolpath.Paint(d3d, arcColor, lineColor);
-//                            d3d.LineWidth = 1f;
-//                            base.PaintDirectionVector(iv, toolpath, d3d, matrix4x4F);
-//                            base.PaintToolpathNormal(iv, toolpathItem, toolpath, d3d, matrix4x4F);
-//                        }
-//                        goto IL_39A;
-//                    }
-//                }
-//                for (int i = 0; i < base.Toolpaths2.Toolpaths.Count; i++)
-//                {
-//                    ToolpathItem toolpathItem2 = base.Toolpaths2.Toolpaths[i];
-//                    if ((num3 <= -1 || toolpathItem2.DepthIndex == num3) && (num4 <= -1 || num5 == num4))
-//                    {
-//                        num5++;
-//                        Polyline toolpath2 = toolpathItem2.Toolpath;
-//                        Matrix4x4F matrix4x4F2 = new Matrix4x4F();
-//                        matrix4x4F2.Translate(0.0, 0.0, toolpathItem2.ZOffset);
-//                        if (base.Transform.Cached != null)
-//                        {
-//                            matrix4x4F2 *= base.Transform.Cached;
-//                        }
-//                        d3d.ModelTransform = matrix4x4F2;
-//                        toolpath2.Paint(d3d, arccolor, linecolor);
-//                        base.PaintDirectionVector(iv, toolpath2, d3d, matrix4x4F2);
-//                        base.PaintToolpathNormal(iv, toolpathItem2, toolpath2, d3d, matrix4x4F2);
-//                    }
-//                }
-//                IL_39A:
 //                if (num3 < 0 && num4 < 0 && this._CADFile.ShowRapids)
 //                {
 //                    d3d.LineWidth = 1f;
@@ -528,7 +428,6 @@ namespace Matmill
 //                    }
 //                    d3d.UseLighting = true;
 //                }
-//            }
         }
 
         public override MachineOp Clone()
