@@ -18,7 +18,7 @@ namespace Matmill
     [Serializable]
     public class Mop_matmill : MOPFromGeometry
     {
-        List<Entity> _path = new List<Entity>();
+        List<List<Entity>> _pockets = new List<List<Entity>>();
 
         protected CBValue<double> _stepover;
         protected CBValue<double> _min_stepover_percentage;
@@ -26,6 +26,7 @@ namespace Matmill
         protected CBValue<double> _depth_increment;
         protected CBValue<double> _final_depth_increment;
         protected CBValue<double> _target_depth;
+        protected CBValue<CutOrderingOption> _cut_ordering;
         protected CBValue<MillingDirectionOptions> _milling_direction;
 
         [Browsable(false), XmlIgnore]
@@ -93,6 +94,20 @@ namespace Matmill
 
         }
 
+        [Category("Options"), DefaultValue(typeof(CBValue<CutOrderingOption>), "Default"), Description("Controls whether to cut to depth first or all cuts on this level first."), DisplayName("Cut Ordering")]
+        public CBValue<CutOrderingOption> CutOrdering
+        {
+        	get
+        	{
+        		return this._cut_ordering;
+        	}
+        	set
+        	{
+        		this._cut_ordering = value;
+        	}
+        }
+
+
         [CBKeyValue, Category("Cutting Depth"), DefaultValue(typeof(CBValue<double>), "Default"), Description("Final depth of the machining operation."), DisplayName("Target Depth")]
         public CBValue<double> TargetDepth
         {
@@ -128,147 +143,82 @@ namespace Matmill
             return base.GetZLayers(base.StockSurface.Cached, this.TargetDepth.Cached, this.DepthIncrement.Cached, this.FinalDepthIncrement.Cached);
         }
 
+        private List<Entity> gen_pocket(ShapeListItem shape)
+        {
+            Polyline outline;
+            Polyline[] islands;
+
+            if (shape.Shape is Polyline)
+            {
+                outline = (Polyline)shape.Shape;
+                islands = new Polyline[] { };
+            }
+            else if (shape.Shape is CamBam.CAD.Region)
+            {
+                CamBam.CAD.Region reg = (CamBam.CAD.Region)shape.Shape;
+                outline = reg.OuterCurve;
+                islands = reg.HoleCurves;
+            }
+            else
+            {
+                return null;
+            }
+
+            Pocket_generator gen = new Pocket_generator(outline, islands);
+            gen.Cutter_d = base.ToolDiameter.Cached;
+            gen.Max_engagement = base.ToolDiameter.Cached * _stepover.Cached;
+            gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage.Cached;
+
+            Pocket_generator_emits to_emit = Pocket_generator_emits.LEADIN_SPIRAL | Pocket_generator_emits.BRANCH_ENTRY;
+//                    if (get_z_layers().Length > 1)
+//                        to_emit |= Pocket_generator_emits.RETURN_TO_BASE;
+            gen.Emit_options = to_emit;
+
+            gen.Startpoint = (Point2F)base.StartPoint.Cached;
+            gen.Margin = base.RoughingClearance.Cached;
+
+            // XXX: for now
+            gen.Mill_direction = RotationDirection.CCW;
+            return gen.run();
+        }
+
 		protected override void _GenerateToolpathsWorker()
 		{
 			try
 			{
-                _path.Clear();
+                _pockets.Clear();
 				GC.Collect();
 
                 // XXX: is it needed ?
 				base.UpdateGeometryExtrema(this._CADFile);
 				this._CADFile.MachiningOptions.UpdateGeometryExtrema(this._CADFile);
+                ShapeList shapes = new ShapeList();
+                shapes.ApplyTransformations = true;
+                shapes.AddEntities(this._CADFile, base.PrimitiveIds);
+                shapes = shapes.DetectRegions();
 
-                List<Polyline> polys = new List<Polyline>();
-
-                foreach (int id in base.PrimitiveIds)
+                bool found_opened_polylines = false;
+                for (int i = shapes.Count - 1; i >= 0; i--)
                 {
-                    Entity e = this._CADFile.FindPrimitive(id);
-
-                    if (e == null)
-                        continue;
-
-                    if (e is Polyline)
-                        polys.Add((Polyline)e);
-                    if (e is Circle)
-                        polys.Add(((Circle)e).ToPolyline());
-                    else if (e is MText)
-                        polys.AddRange(((MText)e).ConvertToPolylines(true));
-                    else if (e is CamBam.CAD.Region)
-                        polys.AddRange(((CamBam.CAD.Region)e).ConvertToPolylines(true));
+                    if (shapes[i].Shape is Polyline && ! ((Polyline)shapes[i].Shape).Closed)
+                    {
+                        found_opened_polylines = true;
+                        shapes.RemoveAt(i);
+                    }
                 }
-
-                bool has_opened_polylines = false;
-				for (int i = polys.Count - 1; i >= 0; i--)
-				{
-					Polyline p = polys[i];
-					if (! p.Closed)
-					{
-						has_opened_polylines = true;
-						polys.RemoveAt(i);
-					}
-				}
-				if (has_opened_polylines)
-				{
+                if (found_opened_polylines)
+                {
                     Host.warn("Found open polylines: ignoring");
-					this.MachineOpStatus = MachineOpStatus.Warnings;
-				}
-
-                if (polys.Count == 0) return;
-
-                CamBam.CAD.Region[] regs = CamBam.CAD.Region.CreateFromPolylines(polys.ToArray());
-
-                if (regs.Length == 0) return;
-
-                if (regs.Length > 1)
-                {
-                    Host.warn("Found several pockets to mill: ignoring all except the first one");
+                    this.MachineOpStatus = MachineOpStatus.Warnings;
                 }
 
-                CamBam.CAD.Region reg = regs[0];
+                foreach (ShapeListItem shape in shapes)
+                {
+                    List<Entity> pocket = gen_pocket(shape);
+                    if (pocket != null)
+                        _pockets.Add(pocket);
+                }
 
-                Pocket_generator gen = new Pocket_generator(reg.OuterCurve, reg.HoleCurves);
-                gen.Cutter_d = base.ToolDiameter.Cached;
-                gen.Max_engagement = base.ToolDiameter.Cached * this.StepOver.Cached;
-                gen.Min_engagement = base.ToolDiameter.Cached * this.StepOver.Cached * this._min_stepover_percentage.Cached;
-
-                Pocket_generator_emits to_emit = Pocket_generator_emits.LEADIN_SPIRAL | Pocket_generator_emits.BRANCH_ENTRY;
-//                    if (get_z_layers().Length > 1)
-//                        to_emit |= Pocket_generator_emits.RETURN_TO_BASE;
-                gen.Emit_options = to_emit;
-
-                gen.Startpoint = (Point2F)StartPoint.Cached;
-                gen.Margin = base.RoughingClearance.Cached;
-
-                // XXX: for now
-                gen.Mill_direction = RotationDirection.CCW;
-                _path = gen.run();                
-
-//
-//                  for (int k = 0; k < path.Count; k++)
-//                  {
-//                      Polyline p;
-//                      Entity e = path[k];
-//                      if (e is Arc)
-//                          p = ((Arc)e).ToPolyline();
-//                      else if (e is Line)
-//                          p = ((Line)e).ToPolyline();
-//                      else
-//                          p = (Polyline)e;
-//
-//                      ToolpathItem tpi = new ToolpathItem(0, 0, shapeList[0].EntityID, -1, p, RotationDirection.Unknown, Point3F.Undefined, 0.0);
-//                      toolpathSequence.Add(tpi);
-//                  }
-
-//
-//  				regionFiller_OffsetFiller.StepOver = base.ToolDiameter.Cached * this.StepOver.Cached;
-//  				regionFiller_OffsetFiller.Margin = base.ToolDiameter.Cached / 2.0 + base.RoughingClearance.Cached;
-//  				regionFiller_OffsetFiller.MinimumShapeLength = base.ToolDiameter.Cached * this.StepOver.Cached / 100.0;
-//  				regionFiller_OffsetFiller.FinishStepover = this.FinishStepover.Cached;
-//  				if (regionFiller_OffsetFiller.GenerateFill() && regionFiller_OffsetFiller.FillShapes != null && regionFiller_OffsetFiller.FillShapes.Count > 0)
-//  				{
-//  					for (int j = 0; j < regionFiller_OffsetFiller.FillShapes.Count; j++)
-//  					{
-//  						ShapeListItem shapeListItem2 = regionFiller_OffsetFiller.FillShapes[j];
-//  						RegionFill_OffsetItem regionFill_OffsetItem = regionFiller_OffsetFiller.OffsetIndex[j];
-//  						if (shapeListItem2.Shape.ID != 0)
-//  						{
-//  							shapeListItem2.Shape.ID = 0;
-//  						}
-//  						shapeListItem2.Shape.Update();
-//  						if (shapeListItem2.Shape is Polyline)
-//  						{
-//  							RotationDirection rotationDirection = ((Polyline)shapeListItem2.Shape).Direction;
-//  							if (regionFill_OffsetItem.SourceEntity.SubItem2 == -1)
-//  							{
-//  								rotationDirection = -rotationDirection;
-//  							}
-//  							ToolpathItem item = new ToolpathItem(0, regionFill_OffsetItem.OffsetIndex, regionFill_OffsetItem.SourceEntity, -1, (Polyline)shapeListItem2.Shape, rotationDirection, Point3F.Undefined, 0.0);
-//  							toolpathSequence.Add(item);
-//  						}
-//  						else if (shapeListItem2.Shape is Region)
-//  						{
-//  							Polyline outerCurve = ((Region)shapeListItem2.Shape).OuterCurve;
-//  							RotationDirection rotationDirection2 = outerCurve.Direction;
-//  							if (regionFill_OffsetItem.SourceEntity.SubItem2 == -1)
-//  							{
-//  								rotationDirection2 = -rotationDirection2;
-//  							}
-//  							ToolpathItem item2 = new ToolpathItem(0, regionFill_OffsetItem.OffsetIndex, regionFill_OffsetItem.SourceEntity, -1, outerCurve, rotationDirection2, Point3F.Undefined, 0.0);
-//  							toolpathSequence.Add(item2);
-//  							int num = 0;
-//  							Polyline[] holeCurves = ((Region)shapeListItem2.Shape).HoleCurves;
-//  							for (int k = 0; k < holeCurves.Length; k++)
-//  							{
-//  								Polyline toolpath = holeCurves[k];
-//  								EntityIdentifier sourceEntity = regionFill_OffsetItem.SourceEntity;
-//  								sourceEntity.SubItem2 = num++;
-//  								ToolpathItem item3 = new ToolpathItem(0, regionFill_OffsetItem.OffsetIndex, sourceEntity, 0, toolpath, -rotationDirection2, Point3F.Undefined, 0.0);
-//  								toolpathSequence.Add(item3);
-//  							}
-//  						}
-//  					}
-//  				}
 //  				base.Toolpaths2 = toolpathSequence;
 //  				base.Toolpaths2.ToolDiameter = base.ToolDiameter.Cached;
 //  				this._GenerateToolpathDepthLevels();
@@ -302,63 +252,80 @@ namespace Matmill
 			}
 		}
 
+        private void emit_pocket_at_depth(MachineOpToGCode gcg, List<Entity> pocket, double depth)
+        {
+            // first entity is the spiral lead-in by convention
+            // rapid/plunge should be inserted by gcg automatically if required
+            gcg.AppendPolyLine((Polyline)pocket[0], depth);
+
+            // next entities are slices (Arcs) or movements inside the pocket (Polylines)
+            for (int eidx = 1; eidx < pocket.Count; eidx++)
+            {
+                Entity e = pocket[eidx];
+
+                if (e is Arc)
+                {
+                    Polyline p = ((Arc)e).ToPolyline();
+                    // emit chordal segment to the start of polyline with the chord feedrate.
+                    // looks like this low-level hack is the only way to include move with custom feedrate it cambam
+                    // no retracts/rapids are needed, path is continuous
+                    Point3F pt = new Point3F(p.Points[0].Point.X, p.Points[0].Point.Y, depth);
+                    gcg.ApplyGCodeOrigin(ref pt);
+                    gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
+                    // emit arc. gcg should change feedrate to the cut feedrate internally
+                    gcg.AppendPolyLine(p, depth);
+                }
+                else if (e is Polyline)
+                {
+                    Polyline p = (Polyline)e;
+                    // emit move inside the pocket point-by-point to preserve custom feedrate, same hack
+                    // no retracts/rapids are needed, path is continuous
+                    for (int i = 0; i < p.Points.Count; i++)
+                    {
+                        Point3F pt = new Point3F(p.Points[i].Point.X, p.Points[i].Point.Y, depth);
+                        gcg.ApplyGCodeOrigin(ref pt);
+                        gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
+                    }
+                }
+                else
+                    throw new Exception("unknown entity in pocket path");
+            }
+        }
+
         public override void PostProcess(MachineOpToGCode gcg)
         {
         	gcg.DefaultStockHeight = base.StockSurface.Cached;
 
-            if (_path == null) return;
+            if (_pockets.Count == 0) return;
 
-            foreach (double depth in get_z_layers())
+            double[] depths = get_z_layers();
+
+            if (_cut_ordering.Cached == CutOrderingOption.DepthFirst)
             {
-                for (int eidx = 0; eidx < _path.Count; eidx++)
+                foreach (List<Entity> pocket in _pockets)
                 {
-                    Entity e = _path[eidx];
-                    Polyline p;
-                    if (e is Arc)
-                        p = ((Arc)e).ToPolyline();
-                    else if (e is Line)
-                        p = ((Line)e).ToPolyline();
-                    else
-                        p = (Polyline)e;
-
-                    if (eidx == 0)
-                    {
-                        gcg.AppendPolyLine(p, depth);
-                        continue;
-                    }
-
-                    if (e is Polyline)
-                    {
-                        for (int i = 0; i < p.Points.Count; i++)
-                        {
-                            Point3F pt = new Point3F(p.Points[i].Point.X, p.Points[i].Point.Y, depth);
-                            gcg.ApplyGCodeOrigin(ref pt);
-                            gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
-                        }
-                    }
-                    else
-                    {
-                        Point3F pt = new Point3F(p.Points[0].Point.X, p.Points[0].Point.Y, depth);
-                        gcg.ApplyGCodeOrigin(ref pt);
-                        gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
-                        gcg.AppendPolyLine(p, depth);
-                    }
+                    foreach (double depth in depths)
+                        emit_pocket_at_depth(gcg, pocket, depth);
+                }
+            }
+            else
+            {
+                foreach (double depth in depths)                    
+                {
+                    foreach (List<Entity> pocket in _pockets)
+                        emit_pocket_at_depth(gcg, pocket, depth);
                 }
             }
         }
 
-        public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
+        private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, List<Entity> pocket, double[] depths)
         {
-        	this._CADFile = iv.CADFile;
-
-            foreach (double depth in get_z_layers())
+            for (int didx = depths.Length - 1; didx >= 0; didx--)
             {
-                foreach (Entity e in _path)
-                {
-                    Color arcColor = arccolor;
-                    Color lineColor = linecolor;
-                    d3d.LineWidth = (float)1;
+                double depth = depths[didx];
 
+                foreach (Entity e in pocket)
+                {
                     Polyline p;
 
                     if (e is Arc)
@@ -370,7 +337,6 @@ namespace Matmill
                     else
                         continue;
 
-
                     Matrix4x4F matrix4x4F = new Matrix4x4F();
                     matrix4x4F.Translate(0.0, 0.0, depth);
 
@@ -378,11 +344,31 @@ namespace Matmill
                         matrix4x4F *= base.Transform.Cached;
 
                     d3d.ModelTransform = matrix4x4F;
-                    p.Paint(d3d, arcColor, lineColor);
+                    d3d.LineWidth = 1F;
+                    p.Paint(d3d, arccolor, linecolor);
                     base.PaintDirectionVector(iv, p, d3d, matrix4x4F);
-                    //base.PaintToolpathNormal(iv, toolpathItem, toolpath, d3d, matrix4x4F);
                 }
             }
+        }
+
+
+        public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
+        {
+        	this._CADFile = iv.CADFile;
+
+            if (_pockets.Count == 0) return;
+
+            double[] depths = get_z_layers();
+
+            foreach (List<Entity> pocket in _pockets)
+            {
+                paint_pocket(iv, d3d, arccolor, linecolor, pocket, depths);
+            }
+
+        	if (selected)
+        	{
+        		base.PaintStartPoint(iv, d3d);
+        	}
 
 //            if (_path)
 //            {
@@ -543,10 +529,6 @@ namespace Matmill
 //                    d3d.UseLighting = true;
 //                }
 //            }
-        	if (selected)
-        	{
-        		base.PaintStartPoint(iv, d3d);
-        	}
         }
 
         public override MachineOp Clone()

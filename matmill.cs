@@ -231,21 +231,18 @@ namespace Matmill
         }
 
         // find least common ancestor for the both branches
-        Entity switch_branch(Slice dst, Slice src, T4 ready_slices, Point2F dst_pt, Point2F src_pt)
+        Polyline switch_branch(Slice dst, Slice src, T4 ready_slices, Point2F dst_pt, Point2F src_pt)
         {
             List<Slice> path = new List<Slice>();
 
             Point2F current = src_pt.IsUndefined ? src.Segments[src.Segments.Count - 1].P2 : src_pt;
             Point2F end = dst_pt.IsUndefined ? dst.Segments[0].P1 : dst_pt;
 
-            // continuation
-            if (dst.Prev == src)
-            {
-                return (Entity)new Line(current, end);
-            }
-            else
-            {
+            Polyline p = new Polyline();
+            p.Add(point(current));
 
+            if (dst.Prev != src)    // do not run search for a simple continuation
+            {
                 List<Slice> src_ancestry = new List<Slice>();
                 List<Slice> dst_ancestry = new List<Slice>();
 
@@ -271,10 +268,6 @@ namespace Matmill
                     path.Add(dst_ancestry[i]);
 
                 // trace path
-                Polyline p = new Polyline();
-
-                p.Add(point(current));
-
                 // follow the path, while looking for a shortcut to reduce travel time
                 // TODO: skip parts of path to reduce travel even more
                 for (int i = 0; i < path.Count; i++)
@@ -286,11 +279,10 @@ namespace Matmill
                     current = s.Center;
                     p.Add(point(current));
                 }
-
-                p.Add(point(end));
-
-                return (Entity)p;
             }
+
+            p.Add(point(end));
+            return p;
         }
 
         Entity switch_branch(Slice dst, Slice src, T4 ready_slices)
@@ -742,7 +734,7 @@ namespace Matmill
             if (root == null)
             {
                 Host.warn("failed to build tree");
-                return new List<Entity>();
+                return null;
             }
 
             List<Branch> traverse = root.Df_traverse();
