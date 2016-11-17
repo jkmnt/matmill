@@ -167,7 +167,7 @@ namespace Matmill
             ToolStripButton button = new ToolStripButton();
             button.ToolTipText = "Trochoidal Pocket";
             button.Click += mop_onclick;
-            button.Image = resources.cam_trochopock;
+            button.Image = resources.cam_trochopock1;
 
             insert_in_toolbar(button);
         }
@@ -183,14 +183,14 @@ namespace Matmill
             menu_entry = new ToolStripMenuItem();
             menu_entry.Text = "Trochoidal Pocket";
             menu_entry.Click += mop_onclick;
-            menu_entry.Image = resources.cam_trochopock;
+            menu_entry.Image = resources.cam_trochopock1;
 
             insert_in_top_menu(ui, menu_entry);
 
             menu_entry = new ToolStripMenuItem();
             menu_entry.Text = "Trochoidal Pocket";
             menu_entry.Click += mop_onclick;
-            menu_entry.Image = resources.cam_trochopock;
+            menu_entry.Image = resources.cam_trochopock1;
 
             insert_in_context_menu(ui, menu_entry);
 

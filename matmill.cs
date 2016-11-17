@@ -79,7 +79,7 @@ namespace Matmill
         public double Min_engagement                   { set { _min_engagement = value; } }
         public double Margin                           { set { _margin = value; } }
         public Point2F Startpoint                      { set { _startpoint = value; } }
-        public Pocket_path_item_type Emit_options { set { _emit_options = value; } }
+        public Pocket_path_item_type Emit_options      { set { _emit_options = value; } }
         public RotationDirection Mill_direction        { set { _dir = value; } }
 
         private bool should_emit(Pocket_path_item_type mask)

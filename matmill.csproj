@@ -96,7 +96,7 @@
     </EmbeddedResource>
   </ItemGroup>
   <ItemGroup>
-    <None Include="Resources\cam_trochopock.bmp" />
+    <None Include="Resources\cam_trochopock1.bmp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\cam_trochopock0.bmp" />

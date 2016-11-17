@@ -37,13 +37,13 @@ namespace Matmill
         [Browsable(false)]
         public Image ActiveIconImage
         {
-        	get { return resources.cam_trochopock;}
+        	get { return resources.cam_trochopock1;}
         }
 
         [Browsable(false)]
         public string ActiveIconKey
         {
-        	get { return "cam_trochopock"; }
+        	get { return "cam_trochopock1"; }
         }
 
         [Browsable(false)]
@@ -52,7 +52,6 @@ namespace Matmill
         	get { return resources.cam_trochopock0;}
         }
 
-        // ThreadingMOP.MOPThreading
         [Browsable(false)]
         public string InactiveIconKey
         {
@@ -266,7 +265,7 @@ namespace Matmill
             // first item is the spiral lead-in by convention
             if (pocket[0].Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
                 throw new Exception("no spiral lead-in in pocket path");
-            
+
 
             foreach (Pocket_path_item item in pocket)
             {
@@ -343,7 +342,7 @@ namespace Matmill
                 double depth = depths[didx];
 
                 foreach (Pocket_path_item item in pocket)
-                {                    
+                {
                     Matrix4x4F matrix4x4F = new Matrix4x4F();
                     matrix4x4F.Translate(0.0, 0.0, depth);
                     if (base.Transform.Cached != null)

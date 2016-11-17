@@ -63,9 +63,9 @@ namespace Matmill {
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
-        internal static System.Drawing.Bitmap cam_trochopock {
+        internal static System.Drawing.Bitmap cam_trochopock0 {
             get {
-                object obj = ResourceManager.GetObject("cam_trochopock", resourceCulture);
+                object obj = ResourceManager.GetObject("cam_trochopock0", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
@@ -73,9 +73,9 @@ namespace Matmill {
         /// <summary>
         ///   Looks up a localized resource of type System.Drawing.Bitmap.
         /// </summary>
-        internal static System.Drawing.Bitmap cam_trochopock0 {
+        internal static System.Drawing.Bitmap cam_trochopock1 {
             get {
-                object obj = ResourceManager.GetObject("cam_trochopock0", resourceCulture);
+                object obj = ResourceManager.GetObject("cam_trochopock1", resourceCulture);
                 return ((System.Drawing.Bitmap)(obj));
             }
         }
