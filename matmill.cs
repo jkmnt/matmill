@@ -67,20 +67,22 @@ namespace Matmill
         private double _margin = 0;
         private double _max_engagement = 3.0 * 0.4;
         private double _min_engagement = 3.0 * 0.1;
+        private double _segmented_slice_engagement_derating_k = 0.5;
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
         private Pocket_path_item_type _emit_options =    Pocket_path_item_type.BRANCH_ENTRY
-                                                            | Pocket_path_item_type.CHORD
-                                                            | Pocket_path_item_type.LEADIN_SPIRAL
-                                                            | Pocket_path_item_type.SEGMENT;
+                                                       | Pocket_path_item_type.CHORD
+                                                       | Pocket_path_item_type.LEADIN_SPIRAL
+                                                       | Pocket_path_item_type.SEGMENT;
 
-        public double Cutter_d                         { set { _cutter_r = value / 2.0;}}
-        public double Max_engagement                   { set { _max_engagement = value; } }
-        public double Min_engagement                   { set { _min_engagement = value; } }
-        public double Margin                           { set { _margin = value; } }
-        public Point2F Startpoint                      { set { _startpoint = value; } }
-        public Pocket_path_item_type Emit_options      { set { _emit_options = value; } }
-        public RotationDirection Mill_direction        { set { _dir = value; } }
+        public double Cutter_d                                    { set { _cutter_r = value / 2.0;}}
+        public double Max_engagement                              { set { _max_engagement = value; } }
+        public double Min_engagement                              { set { _min_engagement = value; } }
+        public double Margin                                      { set { _margin = value; } }
+        public Point2F Startpoint                                 { set { _startpoint = value; } }
+        public Pocket_path_item_type Emit_options                 { set { _emit_options = value; } }
+        public RotationDirection Mill_direction                   { set { _dir = value; } }
+        public double Segmented_slice_engagement_derating_k       { set { _segmented_slice_engagement_derating_k = value; } }
 
         private bool should_emit(Pocket_path_item_type mask)
         {
@@ -224,7 +226,7 @@ namespace Matmill
             {
                 Slice s = new Slice(candidate, pt, radius, _dir);
                 if (! s.Is_undefined)
-                    s.Refine(find_colliding_slices(s, ready_slices), _cutter_r);
+                    s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
 
                 double slice_engage = s.Max_engagement;
                 if (slice_engage > _max_engagement)
@@ -358,7 +360,7 @@ namespace Matmill
                     s = new Slice(prev_slice, pt, radius, _dir);
                     if (! s.Is_undefined)
                     {
-                        s.Refine(find_colliding_slices(s, ready_slices), _cutter_r);
+                        s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
                     }
 
                     // prefer slight undershoot within the engagement tolerance

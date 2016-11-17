@@ -8,8 +8,6 @@ namespace Matmill
 {
     class Slice
     {
-        private const double SEGMENTED_SLICE_ENGAGEMENT_K = 0;
-
         private Circle2F _ball;
         private List<Arc2F> _segments = new List<Arc2F>();
         private Slice _prev_slice;
@@ -33,7 +31,7 @@ namespace Matmill
             return (dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
         }
 
-        static private double Calc_max_engagement(Point2F center, double radius, Slice prev_slice)
+        private double calc_max_engagement(Point2F center, double radius, Slice prev_slice)
         {
             double delta_s = Point2F.Distance(center, prev_slice.Center);
             double delta_r = radius - prev_slice.Radius;
@@ -64,7 +62,7 @@ namespace Matmill
             max = new Point2F(_ball.Center.X + _ball.Radius, _ball.Center.Y + _ball.Radius);
         }
 
-        public void Refine(List<Slice> colliding_slices, double end_clearance)
+        public void Refine(List<Slice> colliding_slices, double end_clearance, double seg_engagement_derating)
         {
             double clearance = end_clearance;
 
@@ -207,7 +205,7 @@ namespace Matmill
                 double e0 = _prev_slice.Center.DistanceTo(max_secant.p1) - _prev_slice.Radius;
                 double e1 = _prev_slice.Center.DistanceTo(max_secant.p2) - _prev_slice.Radius;
 
-                _max_engagement = (1 - SEGMENTED_SLICE_ENGAGEMENT_K) * Math.Max(e0, e1) + _max_engagement * SEGMENTED_SLICE_ENGAGEMENT_K;
+                _max_engagement = (1 - seg_engagement_derating) * Math.Max(e0, e1) + _max_engagement * seg_engagement_derating;
             }
         }
 
@@ -215,7 +213,7 @@ namespace Matmill
         {
             _prev_slice = prev_slice;
             _ball = new Circle2F(center, radius);
-            _max_engagement = Slice.Calc_max_engagement(center, radius, _prev_slice);
+            _max_engagement = calc_max_engagement(center, radius, _prev_slice);
 
             Line2F insects = _prev_slice.Ball.CircleIntersect(_ball);
 

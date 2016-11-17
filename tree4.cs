@@ -172,28 +172,6 @@ namespace Tree4
                 relocate();
         }
 
-        public void Add(T4_rect rect, object obj)
-        {
-            add(new T4_occupant(rect, obj));
-        }
-
-        public List<T4_rect> Traverse_rects()
-        {
-            List<T4_rect> result = new List<T4_rect>();
-
-            result.Add(_rect);
-
-            if (_rooms != null)
-            {
-                foreach (T4 room in _rooms)
-                {
-                    result.AddRange(room.Traverse_rects());
-                }
-            }
-
-            return result;
-        }
-
         private List<T4_occupant> get_internal_occupants(double x, double y, ref double max_squared_dist)
         {
             List<T4_occupant> result = new List<T4_occupant>();
@@ -290,6 +268,28 @@ namespace Tree4
             }
 
             return colliders;
+        }
+
+        public void Add(T4_rect rect, object obj)
+        {
+            add(new T4_occupant(rect, obj));
+        }
+
+        public List<T4_rect> Traverse_rects()
+        {
+            List<T4_rect> result = new List<T4_rect>();
+
+            result.Add(_rect);
+
+            if (_rooms != null)
+            {
+                foreach (T4 room in _rooms)
+                {
+                    result.AddRange(room.Traverse_rects());
+                }
+            }
+
+            return result;
         }
 
         public List<object> Get_nearest_objects(double x, double y)

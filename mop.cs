@@ -1,4 +1,5 @@
 using System;
+using System.Reflection;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
@@ -16,11 +17,14 @@ namespace Matmill
     [Serializable]
     public class Mop_matmill : MOPFromGeometry, IIcon
     {
-        List<List<Pocket_path_item>> _pockets = new List<List<Pocket_path_item>>();
-        List<Surface> _cut_widths = new List<Surface>();
+        private List<List<Pocket_path_item>> _pockets = new List<List<Pocket_path_item>>();
+        private List<Surface> _cut_widths = new List<Surface>();
+
+        //--- mop properties
 
         protected CBValue<double> _stepover;
         protected CBValue<double> _min_stepover_percentage;
+        protected CBValue<double> _segmented_slice_derating;
         protected CBValue<double> _chord_feedrate;
         protected CBValue<double> _depth_increment;
         protected CBValue<double> _final_depth_increment;
@@ -28,64 +32,50 @@ namespace Matmill
         protected CBValue<CutOrderingOption> _cut_ordering;
         protected CBValue<MillingDirectionOptions> _milling_direction;
 
-        [Browsable(false), XmlIgnore]
+        //--- invisible and non-serializeable properties
+
+        [XmlIgnore, Browsable(false)]
 		public override string MOPTypeName
 		{
 			get { return "TrochoPock"; }
 		}
 
-        [Browsable(false)]
+        [XmlIgnore, Browsable(false)]
         public Image ActiveIconImage
         {
         	get { return resources.cam_trochopock1;}
         }
 
-        [Browsable(false)]
+        [XmlIgnore, Browsable(false)]
         public string ActiveIconKey
         {
         	get { return "cam_trochopock1"; }
         }
 
-        [Browsable(false)]
+        [XmlIgnore, Browsable(false)]
         public Image InactiveIconImage
         {
         	get { return resources.cam_trochopock0;}
         }
 
-        [Browsable(false)]
+        [XmlIgnore, Browsable(false)]
         public string InactiveIconKey
         {
         	get { return "cam_trochopock0"; }
         }
 
-        // hide some non-relevant base parameters
+        //--- hidden base parameters non-relevant to this mop
 
-        [Browsable(false), XmlIgnore]
+        [XmlIgnore, Browsable(false)]
         public new CBValue<OptimisationModes> OptimisationMode
         {
             get { return base.OptimisationMode; }
             set { }
         }
 
-        [CBKeyValue, Category("Feedrates"), DefaultValue(2000.0), Description("Feedrate for the chords and movements inside the milled pocket"), DisplayName("Chord Feedrate")]
-		public CBValue<double> Chord_feedrate
-		{
-			get	{ return _chord_feedrate; }
-			set {
-                _chord_feedrate = value;
+        //--- visible parameters which may be styled
 
-                if (_chord_feedrate.IsDefault)
-                {
-                    _chord_feedrate.SetCache(2000.0);
-                    _chord_feedrate.Value = _chord_feedrate.Cached;
-                }
-            }
-		}
-
-        [CBKeyValue, Category("Step Over"),
-            DefaultValue(typeof(CBValue<double>), "Default"),
-            Description("The cut is increased by this amount each step, expressed as a decimal (0-1.0) of the cutter width."),
-            DisplayName("Step Over")]
+        [CBKeyValue, Category("Step Over"), DefaultValue(typeof(CBValue<double>), "Default"), Description("The cut is increased by this amount each step, expressed as a decimal (0-1.0) of the cutter width."), DisplayName("Step Over")]
         public CBValue<double> StepOver
         {
         	get { return this._stepover; }
@@ -117,14 +107,8 @@ namespace Matmill
         [Category("Options"), DefaultValue(typeof(CBValue<CutOrderingOption>), "Default"), Description("Controls whether to cut to depth first or all cuts on this level first."), DisplayName("Cut Ordering")]
         public CBValue<CutOrderingOption> CutOrdering
         {
-        	get
-        	{
-        		return this._cut_ordering;
-        	}
-        	set
-        	{
-        		this._cut_ordering = value;
-        	}
+        	get { return this._cut_ordering; }
+        	set { this._cut_ordering = value; }
         }
 
 
@@ -135,19 +119,33 @@ namespace Matmill
         	set { this._target_depth = value; }
         }
 
-        [CBAdvancedValue, Category("Step Over"), DefaultValue(0.9), Description("Minimum allowed stepover as a percentage of the nominal stepover (0.1 - 0.9)"), DisplayName("Minimum Stepover")]
+        //--- our own new parameters
+
+        [CBKeyValue, Category("Feedrates"), DefaultValue(typeof(CBValue<double>), "Default"), Description("Feedrate for the chords and movements inside the milled pocket"), DisplayName("Chord Feedrate")]
+        public CBValue<double> Chord_feedrate
+        {
+            get	{ return _chord_feedrate; }
+            set {
+                _chord_feedrate = value;
+
+                if (_chord_feedrate.IsDefault)
+                {
+                    _chord_feedrate.SetCache(2000.0);
+                    _chord_feedrate.Value = _chord_feedrate.Cached;
+                }
+            }
+        }
+
+        [CBAdvancedValue,
+            Category("Step Over"),
+            DefaultValue(typeof(CBValue<double>), "Default"),
+            Description("Minimum allowed stepover as a percentage of the nominal stepover (0.1 - 0.9).\nLarger values may leave uncut corners"),
+            DisplayName("Minimum Stepover")]
 		public CBValue<double> Min_stepover
 		{
 			get { return this._min_stepover_percentage; }
 			set
             {
-                if (value.IsValue && (value.Value < 0.1 || value.Value > 0.9))
-                {
-                    _min_stepover_percentage.SetState(CBValueStates.Error);
-                    Host.err("Min Stepover must be in range 0.1 - 0.9");
-                    return;
-                }
-
                 _min_stepover_percentage = value;
 
                 if (_min_stepover_percentage.IsDefault)
@@ -155,7 +153,37 @@ namespace Matmill
                     _min_stepover_percentage.SetCache(0.9);
                     _min_stepover_percentage.Value = _min_stepover_percentage.Cached;
                 }
+
+                if (_min_stepover_percentage.IsValue && (_min_stepover_percentage.Cached < 0.1 || _min_stepover_percentage.Cached > 0.9))
+                {
+                    _min_stepover_percentage.SetCache(Math.Max(Math.Min(_min_stepover_percentage.Cached, 0.9), 0.1));
+                    _min_stepover_percentage.Value = _min_stepover_percentage.Cached;
+                }
             }
+		}
+
+        [CBAdvancedValue, Category("Step Over"), DefaultValue(typeof(CBValue<double>), "Default"), Description("Derating factor for the segmented slices to reduce cutter stress (0 - 1)"), DisplayName("Segmented Slices Derating")]
+		public CBValue<double> Segmented_slice_derating
+		{
+			get { return this._segmented_slice_derating; }
+			set
+            {
+                _segmented_slice_derating = value;
+
+                if (_segmented_slice_derating.IsDefault)
+                {
+                    _segmented_slice_derating.SetCache(0.5);
+                    _segmented_slice_derating.Value = _segmented_slice_derating.Cached;
+                }
+            }
+		}
+
+        //-- read-only About field
+
+        [XmlIgnore, Category("Misc"), DisplayName("Plugin Version"), Description("https://github.com/jkmnt/matmill\njkmnt at git@firewood.fastmail.com")]
+		public string Version
+		{
+            get { return Assembly.GetExecutingAssembly().GetName().Version.ToString(); }
 		}
 
         private double[] get_z_layers()
@@ -188,6 +216,7 @@ namespace Matmill
             gen.Cutter_d = base.ToolDiameter.Cached;
             gen.Max_engagement = base.ToolDiameter.Cached * _stepover.Cached;
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage.Cached;
+            gen.Segmented_slice_engagement_derating_k = _segmented_slice_derating.Cached;
 
             Pocket_path_item_type to_emit = Pocket_path_item_type.LEADIN_SPIRAL | Pocket_path_item_type.BRANCH_ENTRY | Pocket_path_item_type.SEGMENT;
             if (get_z_layers().Length > 1)
@@ -309,32 +338,6 @@ namespace Matmill
             }
         }
 
-        public override void PostProcess(MachineOpToGCode gcg)
-        {
-        	gcg.DefaultStockHeight = base.StockSurface.Cached;
-
-            if (_pockets.Count == 0) return;
-
-            double[] depths = get_z_layers();
-
-            if (_cut_ordering.Cached == CutOrderingOption.DepthFirst)
-            {
-                foreach (List<Pocket_path_item> pocket in _pockets)
-                {
-                    foreach (double depth in depths)
-                        emit_pocket_at_depth(gcg, pocket, depth);
-                }
-            }
-            else
-            {
-                foreach (double depth in depths)
-                {
-                    foreach (List<Pocket_path_item> pocket in _pockets)
-                        emit_pocket_at_depth(gcg, pocket, depth);
-                }
-            }
-        }
-
         private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, List<Pocket_path_item> pocket, double[] depths)
         {
             for (int didx = depths.Length - 1; didx >= 0; didx--)
@@ -382,6 +385,32 @@ namespace Matmill
             }
 		}
 
+        public override void PostProcess(MachineOpToGCode gcg)
+        {
+            gcg.DefaultStockHeight = base.StockSurface.Cached;
+
+            if (_pockets.Count == 0)
+                return;
+
+            double[] depths = get_z_layers();
+
+            if (_cut_ordering.Cached == CutOrderingOption.DepthFirst)
+            {
+                foreach (List<Pocket_path_item> pocket in _pockets)
+                {
+                    foreach (double depth in depths)
+                        emit_pocket_at_depth(gcg, pocket, depth);
+                }
+            }
+            else
+            {
+                foreach (double depth in depths)
+                {
+                    foreach (List<Pocket_path_item> pocket in _pockets)
+                        emit_pocket_at_depth(gcg, pocket, depth);
+                }
+            }
+        }
 
         public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
         {
@@ -449,12 +478,23 @@ namespace Matmill
 
         public Mop_matmill(Mop_matmill src) : base(src)
         {
+         /*   protected CBValue<double> _stepover;
+            protected CBValue<double> _min_stepover_percentage;
+            protected CBValue<double> _chord_feedrate;
+            protected CBValue<double> _depth_increment;
+            protected CBValue<double> _final_depth_increment;
+            protected CBValue<double> _target_depth;
+            protected CBValue<CutOrderingOption> _cut_ordering;
+            */
+
+
             StepOver = src.StepOver;
             Min_stepover = src.Min_stepover;
             Chord_feedrate = src.Chord_feedrate;
             DepthIncrement = src.DepthIncrement;
             FinalDepthIncrement = src.FinalDepthIncrement;
             TargetDepth = src.TargetDepth;
+            CutOrdering = src.CutOrdering;
             MillingDirection = src.MillingDirection;
         }
 

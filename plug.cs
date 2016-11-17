@@ -15,30 +15,23 @@ namespace Matmill
     {
         static public void log(string s, params object[] args)
         {
-            ThisApplication.AddLogMessage(s, args);
+            ThisApplication.AddLogMessage(4, s, args);
         }
         static public void warn(string s, params object[] args)
         {
-            ThisApplication.AddLogMessage("Warning: " + s, args);
+            ThisApplication.AddLogMessage("TrochoPock warning: " + s, args);
         }
         static public void err(string s, params object[] args)
         {
-            ThisApplication.AddLogMessage("Error: " + s, args);
-        }
-        static public void msg(string s, params object[] args)
-        {
-            ThisApplication.MsgBox(String.Format(s, args));
-        }
-        static public void sleep(int ms)
-        {
-            System.Threading.Thread.Sleep(ms);
-            System.Windows.Forms.Application.DoEvents();
+            ThisApplication.AddLogMessage("TrochoPock error: " + s, args);
         }
     }
 
     public class Matmill_plugin
     {
-        static void popup_handler(object sender, EventArgs ars)
+        const string plug_text_name = "Trochoidal Pocket";
+
+        private static void popup_handler(object sender, EventArgs ars)
         {
             object ret;
             ret = ThisApplication.PromptForValue("Enter cutter diameter", "d", typeof(double), "3");
@@ -100,7 +93,7 @@ namespace Matmill
             Host.log("done");
         }
 
-        static void mop_onclick(object sender, EventArgs ars)
+        private static void mop_onclick(object sender, EventArgs ars)
         {
 			if (!PolylineUtils.ConfirmSelected(CamBamUI.MainUI.ActiveView))
 			{
@@ -111,7 +104,7 @@ namespace Matmill
             CamBamUI.MainUI.InsertMOP(mop);
         }
 
-        static private void insert_in_top_menu(CamBamUI ui, ToolStripMenuItem entry)
+        private static void insert_in_top_menu(CamBamUI ui, ToolStripMenuItem entry)
         {
             for (int i = 0; i < ui.Menus.mnuMachining.DropDownItems.Count; ++i)
             {
@@ -124,7 +117,7 @@ namespace Matmill
             }
         }
 
-        static private void insert_in_context_menu(CamBamUI ui, ToolStripMenuItem entry)
+        private static void insert_in_context_menu(CamBamUI ui, ToolStripMenuItem entry)
         {
             foreach (ToolStripItem tsi in ui.ViewContextMenus.ViewContextMenu.Items)
             {
@@ -143,7 +136,7 @@ namespace Matmill
             }
         }
 
-        static private void insert_in_toolbar(ToolStripButton button)
+        private static void insert_in_toolbar(ToolStripButton button)
         {
             foreach (Control c in ThisApplication.TopWindow.Controls)
             {
@@ -162,10 +155,10 @@ namespace Matmill
             }
         }
 
-        static void on_load(object sender, EventArgs e)
+        private static void on_load(object sender, EventArgs e)
         {
             ToolStripButton button = new ToolStripButton();
-            button.ToolTipText = "Trochoidal Pocket";
+            button.ToolTipText = plug_text_name;
             button.Click += mop_onclick;
             button.Image = resources.cam_trochopock1;
 
@@ -181,14 +174,14 @@ namespace Matmill
             ToolStripMenuItem menu_entry;
 
             menu_entry = new ToolStripMenuItem();
-            menu_entry.Text = "Trochoidal Pocket";
+            menu_entry.Text = plug_text_name;
             menu_entry.Click += mop_onclick;
             menu_entry.Image = resources.cam_trochopock1;
 
             insert_in_top_menu(ui, menu_entry);
 
             menu_entry = new ToolStripMenuItem();
-            menu_entry.Text = "Trochoidal Pocket";
+            menu_entry.Text = plug_text_name;
             menu_entry.Click += mop_onclick;
             menu_entry.Image = resources.cam_trochopock1;
 
