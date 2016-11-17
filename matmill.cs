@@ -1,8 +1,6 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 
-using CamBam.UI;
 using CamBam.CAD;
 using CamBam.Geom;
 
@@ -11,14 +9,46 @@ using Voronoi2;
 
 namespace Matmill
 {
-    enum Pocket_generator_emits
+    enum Pocket_path_item_type
     {
-        BRANCH_ENTRY = 0x01,
-        CHORDS = 0x02,
-        SEGMENTS_CONNECTORS = 0x04,
-        LEADIN_SPIRAL = 0x08,
-        RETURN_TO_BASE = 0x10,
-        DEBUG_MAT = 0x20,
+        SEGMENT = 0x01,
+        BRANCH_ENTRY = 0x02,
+        CHORD = 0x04,
+        SEGMENT_CHORD = 0x08,
+        LEADIN_SPIRAL = 0x10,
+        RETURN_TO_BASE = 0x20,
+        DEBUG_MAT = 0x40,
+    }
+
+    class Pocket_path_item: Polyline
+    {
+        public readonly Pocket_path_item_type Item_type;
+
+        public Pocket_path_item(Pocket_path_item_type type) : base()
+        {
+            Item_type = type;
+        }
+
+        public Pocket_path_item(Pocket_path_item_type type, int i) : base(i)
+        {
+            Item_type = type;
+        }
+
+        public Pocket_path_item(Pocket_path_item_type type, Polyline p) : base(p)
+        {
+            Item_type = type;
+        }
+
+        public void Add(Point2F pt)
+        {
+            base.Add(new Point3F(pt.X, pt.Y, 0));
+        }
+
+        public void Add(Curve curve)
+        {
+            foreach (Point2F pt in curve.Points)
+                this.Add(pt);
+        }
     }
 
     class Pocket_generator
@@ -39,27 +69,20 @@ namespace Matmill
         private double _min_engagement = 3.0 * 0.1;
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
-        private Pocket_generator_emits _emit_options = Pocket_generator_emits.BRANCH_ENTRY | Pocket_generator_emits.CHORDS | Pocket_generator_emits.LEADIN_SPIRAL;
+        private Pocket_path_item_type _emit_options =    Pocket_path_item_type.BRANCH_ENTRY
+                                                            | Pocket_path_item_type.CHORD
+                                                            | Pocket_path_item_type.LEADIN_SPIRAL
+                                                            | Pocket_path_item_type.SEGMENT;
 
-        public double Cutter_d                        {set { _cutter_r = value / 2.0;}}
-        public double Max_engagement                  {set { _max_engagement = value; } }
-        public double Min_engagement                  {set { _min_engagement = value; } }
-        public double Margin                          {set { _margin = value; } }
-        public Point2F Startpoint                     {set { _startpoint = value; } }
-        public Pocket_generator_emits Emit_options    {set { _emit_options = value; } }
-        public RotationDirection Mill_direction       {set { _dir = value; } }
+        public double Cutter_d                         { set { _cutter_r = value / 2.0;}}
+        public double Max_engagement                   { set { _max_engagement = value; } }
+        public double Min_engagement                   { set { _min_engagement = value; } }
+        public double Margin                           { set { _margin = value; } }
+        public Point2F Startpoint                      { set { _startpoint = value; } }
+        public Pocket_path_item_type Emit_options { set { _emit_options = value; } }
+        public RotationDirection Mill_direction        { set { _dir = value; } }
 
-        private Point3F point(Point2F p2)
-        {
-            return new Point3F(p2.X, p2.Y, 0);
-        }
-
-        private Point2F point(Point3F p3)
-        {
-            return new Point2F(p3.X, p3.Y);
-        }
-
-        private bool should_emit(Pocket_generator_emits mask)
+        private bool should_emit(Pocket_path_item_type mask)
         {
             return (int)(_emit_options & mask) != 0;
         }
@@ -231,15 +254,15 @@ namespace Matmill
         }
 
         // find least common ancestor for the both branches
-        Polyline switch_branch(Slice dst, Slice src, T4 ready_slices, Point2F dst_pt, Point2F src_pt)
+        Pocket_path_item switch_branch(Slice dst, Slice src, T4 ready_slices, Point2F dst_pt, Point2F src_pt)
         {
             List<Slice> path = new List<Slice>();
 
             Point2F current = src_pt.IsUndefined ? src.Segments[src.Segments.Count - 1].P2 : src_pt;
             Point2F end = dst_pt.IsUndefined ? dst.Segments[0].P1 : dst_pt;
 
-            Polyline p = new Polyline();
-            p.Add(point(current));
+            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.BRANCH_ENTRY);
+            p.Add(current);
 
             if (dst.Prev != src)    // do not run search for a simple continuation
             {
@@ -277,15 +300,15 @@ namespace Matmill
                         break;
 
                     current = s.Center;
-                    p.Add(point(current));
+                    p.Add(current);
                 }
             }
 
-            p.Add(point(end));
+            p.Add(end);
             return p;
         }
 
-        Entity switch_branch(Slice dst, Slice src, T4 ready_slices)
+        Pocket_path_item switch_branch(Slice dst, Slice src, T4 ready_slices)
         {
             return switch_branch(dst, src, ready_slices, Point2F.Undefined, Point2F.Undefined);
         }
@@ -657,36 +680,35 @@ namespace Matmill
             return may_shortcut(a, b, colliders);
         }
 
-        private List<Entity> generate_path(List<Branch> traverse, T4 ready_slices)
+        private List<Pocket_path_item> generate_path(List<Branch> traverse, T4 ready_slices)
         {
             Slice last_slice = null;
 
-            List<Entity> path = new List<Entity>();
+            List<Pocket_path_item> path = new List<Pocket_path_item>();
 
             Slice root_slice = traverse[0].Slices[0];
 
             // emit spiral toolpath for root
-            if (should_emit(Pocket_generator_emits.LEADIN_SPIRAL))
+            if (should_emit(Pocket_path_item_type.LEADIN_SPIRAL))
             {
                 Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _dir);
-                path.Add(spiral);
+                path.Add(new Pocket_path_item(Pocket_path_item_type.LEADIN_SPIRAL, spiral));
             }
 
             for (int bidx = 0; bidx < traverse.Count; bidx++)
             {
                 Branch b = traverse[bidx];
 
-                if (should_emit(Pocket_generator_emits.DEBUG_MAT))
+                if (should_emit(Pocket_path_item_type.DEBUG_MAT))
                 {
-                    Polyline p = new Polyline();
-                    foreach (Point2F pt in b.Curve.Points)
-                        p.Add(point(pt));
-                    path.Add((Entity)p);
+                    Pocket_path_item mat = new Pocket_path_item(Pocket_path_item_type.DEBUG_MAT);
+                    mat.Add(b.Curve);
+                    path.Add(mat);
                 }
 
-                if (should_emit(Pocket_generator_emits.BRANCH_ENTRY) && b.Entry != null)
+                if (should_emit(Pocket_path_item_type.BRANCH_ENTRY) && b.Entry != null)
                 {
-                    path.Add((Entity)b.Entry);
+                    path.Add(b.Entry);
                 }
 
                 for (int sidx = 0; sidx < b.Slices.Count; sidx++)
@@ -694,30 +716,40 @@ namespace Matmill
                     Slice s = b.Slices[sidx];
 
                     // connect following branch slices with chords
-                    if (should_emit(Pocket_generator_emits.CHORDS) && sidx > 0)
+                    if (should_emit(Pocket_path_item_type.CHORD) && sidx > 0)
                     {
-                        path.Add(new Line(last_slice.Segments[last_slice.Segments.Count - 1].P2, s.Segments[0].P1));
+                        Pocket_path_item chord = new Pocket_path_item(Pocket_path_item_type.CHORD);
+                        chord.Add(last_slice.Segments[last_slice.Segments.Count - 1].P2);
+                        chord.Add(s.Segments[0].P1);
+                        path.Add(chord);
                     }
 
                     // emit segments
                     for (int segidx = 0; segidx < s.Segments.Count; segidx++)
                     {
                         // connect segments
-                        if (should_emit(Pocket_generator_emits.SEGMENTS_CONNECTORS) && segidx > 0)
+                        if (should_emit(Pocket_path_item_type.SEGMENT_CHORD) && segidx > 0)
                         {
-                            path.Add(new Line(s.Segments[segidx - 1].P2, s.Segments[segidx].P1));
+                            Pocket_path_item segchord = new Pocket_path_item(Pocket_path_item_type.CHORD);
+                            segchord.Add(s.Segments[segidx - 1].P2);
+                            segchord.Add(s.Segments[segidx].P1);
+                            path.Add(segchord);
                         }
 
-                        Arc arc = new Arc(s.Segments[segidx]);
-                        //arc.Tag = String.Format("me {0:F4}, so {1:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
-                        path.Add(arc);
+                        if (should_emit(Pocket_path_item_type.SEGMENT))
+                        {
+                            Pocket_path_item slice = new Pocket_path_item(Pocket_path_item_type.SEGMENT);
+                            slice.Add(s.Segments[segidx], GENERAL_TOLERANCE);
+                            //arc.Tag = String.Format("me {0:F4}, so {1:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
+                            path.Add(slice);
+                        }
                     }
                     last_slice = s;
                 }
             }
 
             // hacky
-            if (should_emit(Pocket_generator_emits.RETURN_TO_BASE))
+            if (should_emit(Pocket_path_item_type.RETURN_TO_BASE))
             {
                 path.Add(switch_branch(root_slice, last_slice, ready_slices, root_slice.Segments[0].Center, Point2F.Undefined));
             }
@@ -725,7 +757,7 @@ namespace Matmill
             return path;
         }
 
-        public List<Entity> run()
+        public List<Pocket_path_item> run()
         {
             List<Line2F> mat_lines = get_mat_segments();
 

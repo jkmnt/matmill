@@ -12,7 +12,7 @@ namespace Matmill
         public readonly Branch Parent = null;
         public readonly List<Branch> Children = new List<Branch>();
         public readonly List<Slice> Slices = new List<Slice>();
-        public object Entry = null;
+        public Pocket_path_item Entry = null;
         public string Debug = "";
 
         public bool Is_leaf { get { return Children.Count == 0; } }

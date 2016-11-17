@@ -1,24 +1,22 @@
-using CamBam;
-using CamBam.CAD;
-using CamBam.CAM;
-using CamBam.Geom;
-using CamBam.Library;
-using CamBam.UI;
-using CamBam.Util;
-using CamBam.Values;
 using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.Xml.Serialization;
 
+using CamBam;
+using CamBam.CAD;
+using CamBam.CAM;
+using CamBam.Geom;
+using CamBam.UI;
+using CamBam.Values;
+
 namespace Matmill
 {
     [Serializable]
-    public class Mop_matmill : MOPFromGeometry
+    public class Mop_matmill : MOPFromGeometry, IIcon
     {
-        List<List<Entity>> _pockets = new List<List<Entity>>();
+        List<List<Pocket_path_item>> _pockets = new List<List<Pocket_path_item>>();
         List<Surface> _cut_widths = new List<Surface>();
 
         protected CBValue<double> _stepover;
@@ -33,11 +31,33 @@ namespace Matmill
         [Browsable(false), XmlIgnore]
 		public override string MOPTypeName
 		{
-			get
-			{
-				return "TrochoPock";
-			}
+			get { return "TrochoPock"; }
 		}
+
+        [Browsable(false)]
+        public Image ActiveIconImage
+        {
+        	get { return resources.cam_trochopock;}
+        }
+
+        [Browsable(false)]
+        public string ActiveIconKey
+        {
+        	get { return "cam_trochopock"; }
+        }
+
+        [Browsable(false)]
+        public Image InactiveIconImage
+        {
+        	get { return resources.cam_trochopock0;}
+        }
+
+        // ThreadingMOP.MOPThreading
+        [Browsable(false)]
+        public string InactiveIconKey
+        {
+        	get { return "cam_trochopock0"; }
+        }
 
         // hide some non-relevant base parameters
 
@@ -144,7 +164,7 @@ namespace Matmill
             return base.GetZLayers(base.StockSurface.Cached, this.TargetDepth.Cached, this.DepthIncrement.Cached, this.FinalDepthIncrement.Cached);
         }
 
-        private List<Entity> gen_pocket(ShapeListItem shape)
+        private List<Pocket_path_item> gen_pocket(ShapeListItem shape)
         {
             Polyline outline;
             Polyline[] islands;
@@ -170,9 +190,9 @@ namespace Matmill
             gen.Max_engagement = base.ToolDiameter.Cached * _stepover.Cached;
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage.Cached;
 
-            Pocket_generator_emits to_emit = Pocket_generator_emits.LEADIN_SPIRAL | Pocket_generator_emits.BRANCH_ENTRY;
+            Pocket_path_item_type to_emit = Pocket_path_item_type.LEADIN_SPIRAL | Pocket_path_item_type.BRANCH_ENTRY | Pocket_path_item_type.SEGMENT;
             if (get_z_layers().Length > 1)
-                to_emit |= Pocket_generator_emits.RETURN_TO_BASE;
+                to_emit |= Pocket_path_item_type.RETURN_TO_BASE;
             gen.Emit_options = to_emit;
 
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
@@ -217,7 +237,7 @@ namespace Matmill
 
                 foreach (ShapeListItem shape in shapes)
                 {
-                    List<Entity> pocket = gen_pocket(shape);
+                    List<Pocket_path_item> pocket = gen_pocket(shape);
                     if (pocket != null)
                         _pockets.Add(pocket);
                 }
@@ -241,43 +261,52 @@ namespace Matmill
 			}
 		}
 
-        private void emit_pocket_at_depth(MachineOpToGCode gcg, List<Entity> pocket, double depth)
+        private void emit_pocket_at_depth(MachineOpToGCode gcg, List<Pocket_path_item> pocket, double depth)
         {
-            // first entity is the spiral lead-in by convention
-            // rapid/plunge should be inserted by gcg automatically if required
-            gcg.AppendPolyLine((Polyline)pocket[0], depth);
+            // first item is the spiral lead-in by convention
+            if (pocket[0].Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
+                throw new Exception("no spiral lead-in in pocket path");
+            
 
-            // next entities are slices (Arcs) or movements inside the pocket (Polylines)
-            for (int eidx = 1; eidx < pocket.Count; eidx++)
+            foreach (Pocket_path_item item in pocket)
             {
-                Entity e = pocket[eidx];
-
-                if (e is Arc)
+                switch (item.Item_type)
                 {
-                    Polyline p = ((Arc)e).ToPolyline();
+                    case Pocket_path_item_type.LEADIN_SPIRAL:
+                        // rapid/plunge should be inserted by gcg automatically if required
+                        gcg.AppendPolyLine(pocket[0], depth);
+                        break;
+
                     // emit chordal segment to the start of polyline with the chord feedrate.
                     // looks like this low-level hack is the only way to include move with custom feedrate it cambam
                     // no retracts/rapids are needed, path is continuous
-                    Point3F pt = new Point3F(p.Points[0].Point.X, p.Points[0].Point.Y, depth);
-                    gcg.ApplyGCodeOrigin(ref pt);
-                    gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
-                    // emit arc. gcg should change feedrate to the cut feedrate internally
-                    gcg.AppendPolyLine(p, depth);
+                    // emit arc after that. gcg should change feedrate to the cut feedrate internally
+                    case Pocket_path_item_type.SEGMENT:
+                        {
+                            Point3F pt = new Point3F(item.Points[0].Point.X, item.Points[0].Point.Y, depth);
+                            gcg.ApplyGCodeOrigin(ref pt);
+                            gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
+                            gcg.AppendPolyLine(item, depth);
+                        }
+                        break;
+
+                    case Pocket_path_item_type.BRANCH_ENTRY:
+                    case Pocket_path_item_type.RETURN_TO_BASE:
+                        {
+                            // emit move inside the pocket point-by-point to preserve custom feedrate, same hack
+                            // no retracts/rapids are needed, path is continuous
+                            for (int i = 0; i < item.Points.Count; i++)
+                            {
+                                Point3F pt = new Point3F(item.Points[i].Point.X, item.Points[i].Point.Y, depth);
+                                gcg.ApplyGCodeOrigin(ref pt);
+                                gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
+                            }
+                        }
+                        break;
+
+                    default:
+                        throw new Exception("unknown item type in pocket path");
                 }
-                else if (e is Polyline)
-                {
-                    Polyline p = (Polyline)e;
-                    // emit move inside the pocket point-by-point to preserve custom feedrate, same hack
-                    // no retracts/rapids are needed, path is continuous
-                    for (int i = 0; i < p.Points.Count; i++)
-                    {
-                        Point3F pt = new Point3F(p.Points[i].Point.X, p.Points[i].Point.Y, depth);
-                        gcg.ApplyGCodeOrigin(ref pt);
-                        gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
-                    }
-                }
-                else
-                    throw new Exception("unknown entity in pocket path");
             }
         }
 
@@ -291,7 +320,7 @@ namespace Matmill
 
             if (_cut_ordering.Cached == CutOrderingOption.DepthFirst)
             {
-                foreach (List<Entity> pocket in _pockets)
+                foreach (List<Pocket_path_item> pocket in _pockets)
                 {
                     foreach (double depth in depths)
                         emit_pocket_at_depth(gcg, pocket, depth);
@@ -301,41 +330,29 @@ namespace Matmill
             {
                 foreach (double depth in depths)
                 {
-                    foreach (List<Entity> pocket in _pockets)
+                    foreach (List<Pocket_path_item> pocket in _pockets)
                         emit_pocket_at_depth(gcg, pocket, depth);
                 }
             }
         }
 
-        private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, List<Entity> pocket, double[] depths)
+        private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, List<Pocket_path_item> pocket, double[] depths)
         {
             for (int didx = depths.Length - 1; didx >= 0; didx--)
             {
                 double depth = depths[didx];
 
-                foreach (Entity e in pocket)
-                {
-                    Polyline p;
-
-                    if (e is Arc)
-                        p = ((Arc)e).ToPolyline();
-                    else if (e is Polyline)
-                        p = ((Polyline)e);
-                    else if (e is Line)
-                        p = ((Line)e).ToPolyline();
-                    else
-                        continue;
-
+                foreach (Pocket_path_item item in pocket)
+                {                    
                     Matrix4x4F matrix4x4F = new Matrix4x4F();
                     matrix4x4F.Translate(0.0, 0.0, depth);
-
                     if (base.Transform.Cached != null)
                         matrix4x4F *= base.Transform.Cached;
 
                     d3d.ModelTransform = matrix4x4F;
                     d3d.LineWidth = 1F;
-                    p.Paint(d3d, arccolor, linecolor);
-                    base.PaintDirectionVector(iv, p, d3d, matrix4x4F);
+                    item.Paint(d3d, arccolor, linecolor);
+                    base.PaintDirectionVector(iv, item, d3d, matrix4x4F);
                 }
             }
         }
@@ -344,15 +361,11 @@ namespace Matmill
         {
             _cut_widths.Clear();
 
-            foreach (List<Entity> pocket in _pockets)
+            foreach (List<Pocket_path_item> pocket in _pockets)
             {
-                foreach(Entity e in pocket)
+                foreach(Pocket_path_item item in pocket)
                 {
-                    Polyline p;
-                    if (e is Arc)
-                        p = ((Arc)e).ToPolyline();
-                    else
-                        p = (Polyline)e;
+                    Polyline p = item;
 
                     // TODO: maybe a single transform of surface will suffice ?
                     if (base.Transform.Cached != null && ! base.Transform.Cached.IsIdentity())
@@ -379,7 +392,7 @@ namespace Matmill
 
             double[] depths = get_z_layers();
 
-            foreach (List<Entity> pocket in _pockets)
+            foreach (List<Pocket_path_item> pocket in _pockets)
             {
                 paint_pocket(iv, d3d, arccolor, linecolor, pocket, depths);
             }
