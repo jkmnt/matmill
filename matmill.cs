@@ -11,6 +11,7 @@ namespace Matmill
 {
     enum Pocket_path_item_type
     {
+        UNDEFINED = 0x00,
         SEGMENT = 0x01,
         BRANCH_ENTRY = 0x02,
         CHORD = 0x04,
@@ -20,9 +21,16 @@ namespace Matmill
         DEBUG_MAT = 0x40,
     }
 
+    class Pocket_path : List<Pocket_path_item> { }
+
     class Pocket_path_item: Polyline
     {
-        public readonly Pocket_path_item_type Item_type;
+        public Pocket_path_item_type Item_type;
+
+        public Pocket_path_item() : base()
+        {
+
+        }
 
         public Pocket_path_item(Pocket_path_item_type type) : base()
         {
@@ -263,7 +271,7 @@ namespace Matmill
             Point2F current = src_pt.IsUndefined ? src.Segments[src.Segments.Count - 1].P2 : src_pt;
             Point2F end = dst_pt.IsUndefined ? dst.Segments[0].P1 : dst_pt;
 
-            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.BRANCH_ENTRY);
+            Pocket_path_item p = new Pocket_path_item();
             p.Add(current);
 
             if (dst.Prev != src)    // do not run search for a simple continuation
@@ -402,6 +410,7 @@ namespace Matmill
                 if (branch.Slices.Count == 0 && last_slice != null)
                 {
                     branch.Entry = switch_branch(s, last_slice, ready_slices);
+                    branch.Entry.Item_type = Pocket_path_item_type.BRANCH_ENTRY;
                 }
 
                 branch.Slices.Add(s);
@@ -682,11 +691,11 @@ namespace Matmill
             return may_shortcut(a, b, colliders);
         }
 
-        private List<Pocket_path_item> generate_path(List<Branch> traverse, T4 ready_slices)
+        private Pocket_path generate_path(List<Branch> traverse, T4 ready_slices)
         {
             Slice last_slice = null;
 
-            List<Pocket_path_item> path = new List<Pocket_path_item>();
+            Pocket_path path = new Pocket_path();
 
             Slice root_slice = traverse[0].Slices[0];
 
@@ -750,16 +759,17 @@ namespace Matmill
                 }
             }
 
-            // hacky
             if (should_emit(Pocket_path_item_type.RETURN_TO_BASE))
             {
-                path.Add(switch_branch(root_slice, last_slice, ready_slices, root_slice.Segments[0].Center, Point2F.Undefined));
+                Pocket_path_item return_to_base = switch_branch(root_slice, last_slice, ready_slices, root_slice.Center, Point2F.Undefined);
+                return_to_base.Item_type = Pocket_path_item_type.RETURN_TO_BASE;
+                path.Add(return_to_base);
             }
 
             return path;
         }
 
-        public List<Pocket_path_item> run()
+        public Pocket_path run()
         {
             List<Line2F> mat_lines = get_mat_segments();
 

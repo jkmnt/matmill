@@ -31,67 +31,6 @@ namespace Matmill
     {
         const string plug_text_name = "Trochoidal Pocket";
 
-        private static void popup_handler(object sender, EventArgs ars)
-        {
-            object ret;
-            ret = ThisApplication.PromptForValue("Enter cutter diameter", "d", typeof(double), "3");
-            if (ret == null) return;
-            double cutter_d = Math.Abs((double)ret);
-
-            ret = ThisApplication.PromptForValue("Enter stepover", "s", typeof(double), "0.4");
-            if (ret == null) return;
-            double max_engagement = Math.Abs((double)ret) * cutter_d;
-
-            Host.log("hello");
-
-            if (CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer == null)
-                return;
-
-            object[] selection = CamBamUI.MainUI.ActiveView.SelectedEntities;
-            if (selection.Length == 0) return;
-
-            List<Polyline> polys = new List<Polyline>();
-
-            foreach (object obj in selection)
-            {
-                if (obj is Polyline)
-                    polys.Add((Polyline)obj);
-            }
-
-            if (polys.Count == 0) return;
-
-            CamBam.CAD.Region[] regs = CamBam.CAD.Region.CreateFromPolylines(polys.ToArray());
-
-            if (regs.Length != 1) return;
-
-            CamBam.CAD.Region reg = regs[0];
-
-            CamBamUI.MainUI.ActiveView.SuspendRefresh();
-            CamBamUI.MainUI.ActiveView.CADFile.Modified = true;
-            CamBamUI.MainUI.UndoBuffer.AddUndoPoint("matmill");
-            CamBamUI.MainUI.ActiveView.CADFile.EnsureActiveLayer(true);
-            CamBamUI.MainUI.UndoBuffer.Add(CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities);
-
-            Pocket_generator gen = new Pocket_generator(reg.OuterCurve, reg.HoleCurves);
-            gen.Cutter_d = cutter_d;
-            gen.Max_engagement = max_engagement;
-            gen.Min_engagement = max_engagement / 2.0;
-            gen.Mill_direction = RotationDirection.CCW;
-            gen.Emit_options = Pocket_path_item_type.BRANCH_ENTRY | Pocket_path_item_type.SEGMENT | Pocket_path_item_type.LEADIN_SPIRAL | Pocket_path_item_type.DEBUG_MAT;
-            List<Pocket_path_item> path = gen.run();
-
-            Host.log("path generated");
-
-            foreach (Pocket_path_item item in path)
-            {
-                CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(item);
-            }
-
-            CamBamUI.MainUI.ActiveView.ResumeRefresh();
-            CamBamUI.MainUI.ActiveView.UpdateViewport();
-
-            Host.log("done");
-        }
 
         private static void mop_onclick(object sender, EventArgs ars)
         {
@@ -167,10 +106,6 @@ namespace Matmill
 
         public static void InitPlugin(CamBamUI ui)
         {
-            ToolStripMenuItem popup = new ToolStripMenuItem("MAT DEBUG");
-            popup.Click += popup_handler;
-            ui.Menus.mnuPlugins.DropDownItems.Add(popup);
-
             ToolStripMenuItem menu_entry;
 
             menu_entry = new ToolStripMenuItem();

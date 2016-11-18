@@ -14,23 +14,46 @@ using CamBam.Values;
 
 namespace Matmill
 {
+    // toolpath combines flat trajectory and depth
+    class Toolpath
+    {
+        public readonly Pocket_path Trajectory;
+        public readonly double Depth;
+        public readonly bool Should_return_to_base;
+        public Toolpath(Pocket_path path, double depth, bool return_to_base)
+        {
+            this.Trajectory = path;
+            this.Depth = depth;
+            this.Should_return_to_base = return_to_base;
+        }
+    }
+
     [Serializable]
     public class Mop_matmill : MOPFromGeometry, IIcon
     {
-        private List<List<Pocket_path_item>> _pockets = new List<List<Pocket_path_item>>();
-        private List<Surface> _cut_widths = new List<Surface>();
+        [NonSerialized]
+        private List<Pocket_path> _trajectories = new List<Pocket_path>();
+        [NonSerialized]
+        private List<Toolpath> _toolpaths = new List<Toolpath>();
+
+        //--- these are for rendering only !
+        [NonSerialized]
+        private List<Surface> _visual_cut_widths = new List<Surface>();
+        [NonSerialized]
+        private List<Polyline> _visual_rapids = new List<Polyline>();
 
         //--- mop properties
 
-        protected CBValue<double> _stepover;
-        protected CBValue<double> _min_stepover_percentage;
-        protected CBValue<double> _segmented_slice_derating;
-        protected CBValue<double> _chord_feedrate;
-        protected CBValue<double> _depth_increment;
-        protected CBValue<double> _final_depth_increment;
-        protected CBValue<double> _target_depth;
         protected CBValue<CutOrderingOption> _cut_ordering;
         protected CBValue<MillingDirectionOptions> _milling_direction;
+        protected CBValue<double> _depth_increment;
+        protected CBValue<double> _final_depth_increment;
+        protected CBValue<double> _stepover;
+        protected CBValue<double> _target_depth;
+
+        protected double _chord_feedrate = 2000.0;
+        protected double _min_stepover_percentage = 0.9;
+        protected double _segmented_slice_derating = 0.5;
 
         //--- invisible and non-serializeable properties
 
@@ -119,79 +142,107 @@ namespace Matmill
         	set { this._target_depth = value; }
         }
 
-        //--- our own new parameters
+        //--- our own new parameters. No reason to make them CBValues, since they couldn't be styled anyway
 
-        [CBKeyValue, Category("Feedrates"), DefaultValue(typeof(CBValue<double>), "Default"), Description("Feedrate for the chords and movements inside the milled pocket"), DisplayName("Chord Feedrate")]
-        public CBValue<double> Chord_feedrate
+        [
+            CBKeyValue,
+            Category("Feedrates"),
+            DefaultValue(2000),
+            Description("Feedrate for the chords and movements inside the milled pocket"),
+            DisplayName("Chord Feedrate")
+        ]
+        public double Chord_feedrate
         {
             get	{ return _chord_feedrate; }
-            set {
-                _chord_feedrate = value;
-
-                if (_chord_feedrate.IsDefault)
-                {
-                    _chord_feedrate.SetCache(2000.0);
-                    _chord_feedrate.Value = _chord_feedrate.Cached;
-                }
-            }
+            set { _chord_feedrate = value; }
         }
 
-        [CBAdvancedValue,
+        [
+            CBAdvancedValue,
             Category("Step Over"),
-            DefaultValue(typeof(CBValue<double>), "Default"),
+            DefaultValue(0.9),
             Description("Minimum allowed stepover as a percentage of the nominal stepover (0.1 - 0.9).\nLarger values may leave uncut corners"),
-            DisplayName("Minimum Stepover")]
-		public CBValue<double> Min_stepover
+            DisplayName("Minimum Stepover")
+        ]
+		public double Min_stepover
 		{
 			get { return this._min_stepover_percentage; }
 			set
             {
                 _min_stepover_percentage = value;
 
-                if (_min_stepover_percentage.IsDefault)
+                if (value < 0.1 || value > 0.9)
                 {
-                    _min_stepover_percentage.SetCache(0.9);
-                    _min_stepover_percentage.Value = _min_stepover_percentage.Cached;
-                }
-
-                if (_min_stepover_percentage.IsValue && (_min_stepover_percentage.Cached < 0.1 || _min_stepover_percentage.Cached > 0.9))
-                {
-                    _min_stepover_percentage.SetCache(Math.Max(Math.Min(_min_stepover_percentage.Cached, 0.9), 0.1));
-                    _min_stepover_percentage.Value = _min_stepover_percentage.Cached;
+                    _min_stepover_percentage = Math.Max(Math.Min(0.9, value), 0.1);
+                    redraw_parameters();
                 }
             }
 		}
 
-        [CBAdvancedValue, Category("Step Over"), DefaultValue(typeof(CBValue<double>), "Default"), Description("Derating factor for the segmented slices to reduce cutter stress (0 - 1)"), DisplayName("Segmented Slices Derating")]
-		public CBValue<double> Segmented_slice_derating
+        [
+            CBAdvancedValue,
+            Category("Step Over"),
+            DefaultValue(0.5),
+            Description("Derating factor for the segmented slices to reduce cutter stress (0 - 1)"),
+            DisplayName("Segmented Slices Derating")
+        ]
+		public double Segmented_slice_derating
 		{
 			get { return this._segmented_slice_derating; }
-			set
-            {
-                _segmented_slice_derating = value;
-
-                if (_segmented_slice_derating.IsDefault)
-                {
-                    _segmented_slice_derating.SetCache(0.5);
-                    _segmented_slice_derating.Value = _segmented_slice_derating.Cached;
-                }
-            }
+			set { _segmented_slice_derating = value; }
 		}
 
         //-- read-only About field
 
-        [XmlIgnore, Category("Misc"), DisplayName("Plugin Version"), Description("https://github.com/jkmnt/matmill\njkmnt at git@firewood.fastmail.com")]
+        [
+            XmlIgnore,
+            Category("Misc"),
+            DisplayName("Plugin Version"),
+            Description("https://github.com/jkmnt/matmill\njkmnt at git@firewood.fastmail.com")
+        ]
 		public string Version
 		{
             get { return Assembly.GetExecutingAssembly().GetName().Version.ToString(); }
 		}
+
+        public override bool NeedsRebuild
+        {
+            get { return _trajectories == null || _trajectories.Count == 0; }
+        }
 
         private double[] get_z_layers()
         {
             return base.GetZLayers(base.StockSurface.Cached, this.TargetDepth.Cached, this.DepthIncrement.Cached, this.FinalDepthIncrement.Cached);
         }
 
-        private List<Pocket_path_item> gen_pocket(ShapeListItem shape)
+        private List<Toolpath> gen_ordered_toolpath(List<Pocket_path> trajectories, double[] depths)
+        {
+            List<Toolpath> toolpaths = new List<Toolpath>();
+
+            if (_cut_ordering.Cached == CutOrderingOption.DepthFirst)
+            {
+                foreach (Pocket_path traj in trajectories)
+                {
+                    // Last depth level of each pocket should have no return to base, it's useless
+                    int i;
+                    for (i = 0; i < depths.Length - 1; i++)                                            
+                        toolpaths.Add(new Toolpath(traj, depths[i], true));
+                    toolpaths.Add(new Toolpath(traj, depths[i], false));
+                }
+            }
+            else
+            {
+                foreach (double depth in depths)
+                {
+                    foreach (Pocket_path traj in trajectories)
+                        toolpaths.Add(new Toolpath(traj, depth, false));
+                }
+            }
+
+            return toolpaths;
+        }
+
+        private Pocket_path gen_pocket(ShapeListItem shape)
         {
             Polyline outline;
             Polyline[] islands;
@@ -215,12 +266,10 @@ namespace Matmill
             Pocket_generator gen = new Pocket_generator(outline, islands);
             gen.Cutter_d = base.ToolDiameter.Cached;
             gen.Max_engagement = base.ToolDiameter.Cached * _stepover.Cached;
-            gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage.Cached;
-            gen.Segmented_slice_engagement_derating_k = _segmented_slice_derating.Cached;
+            gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
+            gen.Segmented_slice_engagement_derating_k = _segmented_slice_derating;
 
-            Pocket_path_item_type to_emit = Pocket_path_item_type.LEADIN_SPIRAL | Pocket_path_item_type.BRANCH_ENTRY | Pocket_path_item_type.SEGMENT;
-            if (get_z_layers().Length > 1)
-                to_emit |= Pocket_path_item_type.RETURN_TO_BASE;
+            Pocket_path_item_type to_emit = Pocket_path_item_type.LEADIN_SPIRAL | Pocket_path_item_type.BRANCH_ENTRY | Pocket_path_item_type.SEGMENT | Pocket_path_item_type.RETURN_TO_BASE;
             gen.Emit_options = to_emit;
 
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
@@ -232,13 +281,103 @@ namespace Matmill
             return gen.run();
         }
 
+        private void redraw_parameters()
+        {
+            CamBamUI.MainUI.ObjectProperties.Refresh();
+        }
+
+        private List<Surface> calc_visual_cut_widths(List<Pocket_path> trajectories, double depth)
+        {
+            List<Surface> surfaces = new List<Surface>();
+
+            foreach (Pocket_path traj in trajectories)
+            {
+                foreach(Pocket_path_item item in traj)
+                {
+                    Polyline p = item;
+
+                    if (item.Item_type != Pocket_path_item_type.SEGMENT && item.Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
+                        continue;
+
+                    // TODO: maybe a single transform of surface will suffice ?
+                    if (base.Transform.Cached != null && ! base.Transform.Cached.IsIdentity())
+                    {
+                        p = (Polyline) p.Clone();
+                        p.ApplyTransformation(base.Transform.Cached);
+                    }
+
+                    PolylineToMesh mesh = new PolylineToMesh(p);
+    				Matrix4x4F xm = Matrix4x4F.Translation(0.0, 0.0, depth - 0.001);
+    				Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
+    				surface.ApplyTransformation(xm);
+    				surfaces.Add(surface);
+                }
+            }
+
+            return surfaces;
+		}
+
+        private List<Polyline> calc_visual_rapids(List<Toolpath> toolpaths)
+        {
+            List<Polyline> rapids = new List<Polyline>();
+
+            double thres = base.GetDistanceThreshold();
+
+            Point3F lastpt = Point3F.Undefined;
+
+            // rapids are possible only between depth levels of pocket and separate pockets
+            foreach (Toolpath path in toolpaths)
+            {                
+                if (! lastpt.IsUndefined)
+                {
+                    Point3F to = path.Trajectory[0].FirstPoint;
+                    to = new Point3F(to.X, to.Y, path.Depth);
+
+                    double dist = Point2F.Distance((Point2F)lastpt, (Point2F)to);
+
+                    if (dist > thres + (double)CamBamConfig.Defaults.GeneralTolerance)
+                    {
+                        // rapid here from last to first point of pocket
+                        Polyline p = new Polyline();
+                        p.Add(lastpt);
+                        p.Add(new Point3F(lastpt.X, lastpt.Y, ClearancePlane.Cached));
+                        p.Add(new Point3F(to.X, to.Y, ClearancePlane.Cached));
+                        p.Add(to);
+                        rapids.Add(p);
+                    }
+                }                
+
+                // NOTE: we're discarding last path item if return to base should be disabled for this segment
+                lastpt = path.Trajectory[path.Trajectory.Count - (path.Should_return_to_base ? 1 : 2)].LastPoint;
+                lastpt = new Point3F(lastpt.X, lastpt.Y, path.Depth);
+            }
+
+            return rapids;
+		}
+
 		protected override void _GenerateToolpathsWorker()
 		{
 			try
 			{
-                _pockets.Clear();
-                _cut_widths.Clear();
+                _trajectories.Clear();
+                _toolpaths.Clear();
+                _visual_cut_widths.Clear();
+                _visual_rapids.Clear();
 				GC.Collect();
+
+                if (base.ToolDiameter.Cached == 0)
+                {
+                    Host.err("tool diameter is zero");
+                    this.MachineOpStatus = MachineOpStatus.Errors;
+                    return;
+                }
+
+                if (_stepover.Cached == 0 || _stepover.Cached > 1)
+                {
+                    Host.err("stepover should be > 0 and <= 1");
+                    this.MachineOpStatus = MachineOpStatus.Errors;
+                    return;
+                }
 
                 // XXX: is it needed ?
 				base.UpdateGeometryExtrema(this._CADFile);
@@ -259,19 +398,24 @@ namespace Matmill
                 }
                 if (found_opened_polylines)
                 {
-                    Host.warn("Found open polylines: ignoring");
+                    Host.warn("ignoring open polylines");
                     this.MachineOpStatus = MachineOpStatus.Warnings;
                 }
 
                 foreach (ShapeListItem shape in shapes)
                 {
-                    List<Pocket_path_item> pocket = gen_pocket(shape);
-                    if (pocket != null)
-                        _pockets.Add(pocket);
+                    Pocket_path traj = gen_pocket(shape);
+                    if (traj != null)
+                        _trajectories.Add(traj);
                 }
 
+                if (_trajectories.Count == 0)
+                    return;
+
                 double[] depths = get_z_layers();
-                update_cut_widths(depths[depths.Length - 1]);
+                _toolpaths = gen_ordered_toolpath(_trajectories, depths);
+                _visual_cut_widths = calc_visual_cut_widths(_trajectories, depths[depths.Length - 1]);  // for the last depth only
+                _visual_rapids = calc_visual_rapids(_toolpaths);
 
                 if (this.MachineOpStatus == MachineOpStatus.Unknown)
                 {
@@ -289,186 +433,129 @@ namespace Matmill
 			}
 		}
 
-        private void emit_pocket_at_depth(MachineOpToGCode gcg, List<Pocket_path_item> pocket, double depth)
+        private void emit_toolpath(MachineOpToGCode gcg, Toolpath path)
         {
             // first item is the spiral lead-in by convention
-            if (pocket[0].Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
+            if (path.Trajectory[0].Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
                 throw new Exception("no spiral lead-in in pocket path");
 
+            // make sure there would be rapid if required
+            gcg.CheckPosition(path.Trajectory[0].Points[0].Point, path.Depth);
 
-            foreach (Pocket_path_item item in pocket)
+            foreach (Pocket_path_item item in path.Trajectory)
             {
-                switch (item.Item_type)
+                if (item.Item_type == Pocket_path_item_type.LEADIN_SPIRAL)
                 {
-                    case Pocket_path_item_type.LEADIN_SPIRAL:
-                        // rapid/plunge should be inserted by gcg automatically if required
-                        gcg.AppendPolyLine(pocket[0], depth);
-                        break;
-
+                    gcg.AppendPolyLine(item, path.Depth);
+                }
+                else if (item.Item_type == Pocket_path_item_type.SEGMENT)
+                {
                     // emit chordal segment to the start of polyline with the chord feedrate.
                     // looks like this low-level hack is the only way to include move with custom feedrate it cambam
                     // no retracts/rapids are needed, path is continuous
-                    // emit arc after that. gcg should change feedrate to the cut feedrate internally
-                    case Pocket_path_item_type.SEGMENT:
-                        {
-                            Point3F pt = new Point3F(item.Points[0].Point.X, item.Points[0].Point.Y, depth);
-                            gcg.ApplyGCodeOrigin(ref pt);
-                            gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
-                            gcg.AppendPolyLine(item, depth);
-                        }
-                        break;
-
-                    case Pocket_path_item_type.BRANCH_ENTRY:
-                    case Pocket_path_item_type.RETURN_TO_BASE:
-                        {
-                            // emit move inside the pocket point-by-point to preserve custom feedrate, same hack
-                            // no retracts/rapids are needed, path is continuous
-                            for (int i = 0; i < item.Points.Count; i++)
-                            {
-                                Point3F pt = new Point3F(item.Points[i].Point.X, item.Points[i].Point.Y, depth);
-                                gcg.ApplyGCodeOrigin(ref pt);
-                                gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate.Cached);
-                            }
-                        }
-                        break;
-
-                    default:
-                        throw new Exception("unknown item type in pocket path");
+                    // emit arc after that. gcg should change feedrate to the cut feedrate internally                                            
+                    Point3F pt = new Point3F(item.Points[0].Point.X, item.Points[0].Point.Y, path.Depth);
+                    gcg.ApplyGCodeOrigin(ref pt);
+                    gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
+                    gcg.AppendPolyLine(item, path.Depth);
                 }
-            }
-        }
-
-        private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, List<Pocket_path_item> pocket, double[] depths)
-        {
-            for (int didx = depths.Length - 1; didx >= 0; didx--)
-            {
-                double depth = depths[didx];
-
-                foreach (Pocket_path_item item in pocket)
+                else if (item.Item_type == Pocket_path_item_type.BRANCH_ENTRY || item.Item_type == Pocket_path_item_type.RETURN_TO_BASE)
                 {
-                    Matrix4x4F matrix4x4F = new Matrix4x4F();
-                    matrix4x4F.Translate(0.0, 0.0, depth);
-                    if (base.Transform.Cached != null)
-                        matrix4x4F *= base.Transform.Cached;
+                    if (item.Item_type == Pocket_path_item_type.RETURN_TO_BASE && !path.Should_return_to_base)
+                        continue;
 
-                    d3d.ModelTransform = matrix4x4F;
-                    d3d.LineWidth = 1F;
-                    item.Paint(d3d, arccolor, linecolor);
-                    base.PaintDirectionVector(iv, item, d3d, matrix4x4F);
-                }
-            }
-        }
-
-        private void update_cut_widths(double depth)
-        {
-            _cut_widths.Clear();
-
-            foreach (List<Pocket_path_item> pocket in _pockets)
-            {
-                foreach(Pocket_path_item item in pocket)
-                {
-                    Polyline p = item;
-
-                    // TODO: maybe a single transform of surface will suffice ?
-                    if (base.Transform.Cached != null && ! base.Transform.Cached.IsIdentity())
+                    // emit move inside the pocket point-by-point to preserve custom feedrate, same hack
+                    // no retracts/rapids are needed, path is continuous
+                    for (int i = 0; i < item.Points.Count; i++)
                     {
-                        p = (Polyline) p.Clone();
-                        p.ApplyTransformation(base.Transform.Cached);
+                        Point3F pt = new Point3F(item.Points[i].Point.X, item.Points[i].Point.Y, path.Depth);
+                        gcg.ApplyGCodeOrigin(ref pt);
+                        gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
                     }
-
-                    PolylineToMesh mesh = new PolylineToMesh(p);
-    				Matrix4x4F xm = Matrix4x4F.Translation(0.0, 0.0, depth - 0.001);
-    				Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
-    				surface.ApplyTransformation(xm);
-    				_cut_widths.Add(surface);
+                }
+                else
+                { 
+                    throw new Exception("unknown item type in pocket trajectory");
                 }
             }
-		}
+        }
+
+        private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, Toolpath path)
+        {
+            foreach (Pocket_path_item p in path.Trajectory)
+            {
+                if (p.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (!path.Should_return_to_base))
+                    continue;
+
+                Matrix4x4F matrix4x4F = new Matrix4x4F();
+                matrix4x4F.Translate(0.0, 0.0, path.Depth);
+                if (base.Transform.Cached != null)
+                    matrix4x4F *= base.Transform.Cached;
+
+                d3d.ModelTransform = matrix4x4F;
+                d3d.LineWidth = 1F;
+                p.Paint(d3d, arccolor, linecolor);
+                base.PaintDirectionVector(iv, p, d3d, matrix4x4F);
+            }
+        }
 
         public override void PostProcess(MachineOpToGCode gcg)
         {
             gcg.DefaultStockHeight = base.StockSurface.Cached;
 
-            if (_pockets.Count == 0)
+            if (_trajectories.Count == 0)
                 return;
 
-            double[] depths = get_z_layers();
+            foreach(Toolpath path in _toolpaths)
+                emit_toolpath(gcg, path);
+        }
 
-            if (_cut_ordering.Cached == CutOrderingOption.DepthFirst)
-            {
-                foreach (List<Pocket_path_item> pocket in _pockets)
-                {
-                    foreach (double depth in depths)
-                        emit_pocket_at_depth(gcg, pocket, depth);
-                }
-            }
-            else
-            {
-                foreach (double depth in depths)
-                {
-                    foreach (List<Pocket_path_item> pocket in _pockets)
-                        emit_pocket_at_depth(gcg, pocket, depth);
-                }
-            }
+        private void paint_cut_widths(Display3D d3d)
+        {
+            double depth = _toolpaths[_toolpaths.Count - 1].Depth;
+
+            d3d.LineColor = CamBamConfig.Defaults.CutWidthColor;
+            d3d.LineStyle = LineStyle.Solid;
+            d3d.LineWidth = 0F;
+            d3d.ModelTransform = Matrix4x4F.Identity;
+            d3d.UseLighting = false;
+            foreach (Surface s in _visual_cut_widths)
+                s.Paint(d3d);
+
+            d3d.UseLighting = true;
+        }
+
+        private void paint_rapids(Display3D d3d)
+        {
+            d3d.LineWidth = 1f;
+            d3d.LineColor = CamBamConfig.Defaults.ToolpathRapidColor;
+            d3d.ModelTransform = Matrix4x4F.Identity;
+            d3d.LineStyle = LineStyle.Dotted;
+
+            foreach (Polyline p in _visual_rapids)
+                p.Paint(d3d);
+
+            d3d.LineStyle = LineStyle.Solid;
         }
 
         public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
         {
+            // XXX: what this line for ?
         	this._CADFile = iv.CADFile;
 
-            if (_pockets.Count == 0) return;
+            if (_trajectories.Count == 0) return;
 
-            double[] depths = get_z_layers();
-
-            foreach (List<Pocket_path_item> pocket in _pockets)
-            {
-                paint_pocket(iv, d3d, arccolor, linecolor, pocket, depths);
-            }
+            foreach (Toolpath item in _toolpaths)
+                paint_pocket(iv, d3d, arccolor, linecolor, item);
 
             if (this._CADFile.ShowCutWidths)
-            {
-                d3d.LineColor = CamBamConfig.Defaults.CutWidthColor;
-                d3d.LineStyle = LineStyle.Solid;
-                d3d.LineWidth = 0F;
-                d3d.ModelTransform = Matrix4x4F.Identity;
-                d3d.UseLighting = false;
-                foreach (Surface s in _cut_widths)
-                {
-                    s.Paint(d3d);
-                }
-                d3d.UseLighting = true;
-            }
+                paint_cut_widths(d3d);
 
-        	if (selected)
-        	{
+            if (this._CADFile.ShowRapids)
+                paint_rapids(d3d);
+
+            if (selected)
         		base.PaintStartPoint(iv, d3d);
-        	}
-
-//                if (num3 < 0 && num4 < 0 && this._CADFile.ShowRapids)
-//                {
-//                    d3d.LineWidth = 1f;
-//                    d3d.LineColor = CamBamConfig.Defaults.ToolpathRapidColor;
-//                    d3d.ModelTransform = Matrix4x4F.Identity;
-//                    d3d.LineStyle = LineStyle.Dotted;
-//                    foreach (Polyline current2 in base.Toolpaths2.Rapids)
-//                    {
-//                        current2.Paint(d3d);
-//                    }
-//                    d3d.LineStyle = LineStyle.Solid;
-//                }
-//                if (this._CADFile.ShowCutWidths && base.Toolpaths2.Sequence.Count > 0 && base.Toolpaths2.CutWidths != null)
-//                {
-//                    d3d.LineColor = CamBamConfig.Defaults.CutWidthColor;
-//                    d3d.LineStyle = LineStyle.Solid;
-//                    d3d.LineWidth = 0f;
-//                    d3d.ModelTransform = Matrix4x4F.Identity;
-//                    d3d.UseLighting = false;
-//                    foreach (Surface current3 in base.Toolpaths2.CutWidths)
-//                    {
-//                        current3.Paint(d3d);
-//                    }
-//                    d3d.UseLighting = true;
-//                }
         }
 
         public override MachineOp Clone()
@@ -478,28 +565,21 @@ namespace Matmill
 
         public Mop_matmill(Mop_matmill src) : base(src)
         {
-         /*   protected CBValue<double> _stepover;
-            protected CBValue<double> _min_stepover_percentage;
-            protected CBValue<double> _chord_feedrate;
-            protected CBValue<double> _depth_increment;
-            protected CBValue<double> _final_depth_increment;
-            protected CBValue<double> _target_depth;
-            protected CBValue<CutOrderingOption> _cut_ordering;
-            */
-
-
-            StepOver = src.StepOver;
-            Min_stepover = src.Min_stepover;
-            Chord_feedrate = src.Chord_feedrate;
-            DepthIncrement = src.DepthIncrement;
-            FinalDepthIncrement = src.FinalDepthIncrement;
-            TargetDepth = src.TargetDepth;
             CutOrdering = src.CutOrdering;
             MillingDirection = src.MillingDirection;
+            DepthIncrement = src.DepthIncrement;
+            FinalDepthIncrement = src.FinalDepthIncrement;
+            StepOver = src.StepOver;
+            TargetDepth = src.TargetDepth;
+
+            Chord_feedrate = src.Chord_feedrate;
+            Min_stepover = src.Min_stepover;
+            Segmented_slice_derating = src.Segmented_slice_derating;
         }
 
         public Mop_matmill()
         {
+
 
         }
 

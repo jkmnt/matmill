@@ -8,7 +8,7 @@
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Matmill</RootNamespace>
-    <AssemblyName>mat</AssemblyName>
+    <AssemblyName>trochopock</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
@@ -84,7 +84,6 @@
     </Compile>
     <Compile Include="segpool.cs" />
     <Compile Include="slice.cs" />
-    <Compile Include="tree4_debug.cs" />
     <Compile Include="tree4.cs" />
     <Compile Include="Voronoi.cs" />
     <Compile Include="VoronoiElements.cs" />
