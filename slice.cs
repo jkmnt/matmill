@@ -12,10 +12,10 @@ namespace Matmill
         private List<Arc2F> _segments = new List<Arc2F>();
         private Slice _prev_slice;
         private double _max_engagement;
-        private bool _is_undefined = true;
+        private double _dist;
 
         public Circle2F Ball            { get { return _ball; } }
-        public bool Is_undefined        { get { return _is_undefined; } }
+        public double Dist              { get { return _dist; } }
 
         public Point2F Center           { get { return _ball.Center; } }
         public double Radius            { get { return _ball.Radius; } }
@@ -30,13 +30,6 @@ namespace Matmill
             if (angle < 0)
                 angle += 2.0 * Math.PI;
             return (dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
-        }
-
-        private double calc_max_engagement(Point2F center, double radius, Slice prev_slice)
-        {
-            double delta_s = Point2F.Distance(center, prev_slice.Center);
-            double delta_r = radius - prev_slice.Radius;
-            return delta_s + delta_r;
         }
 
         public void Get_extrema(ref Point2F min, ref Point2F max)
@@ -223,49 +216,53 @@ namespace Matmill
         {
             _prev_slice = prev_slice;
             _ball = new Circle2F(center, radius);
-            _max_engagement = calc_max_engagement(center, radius, _prev_slice);
+            _dist = Point2F.Distance(center, prev_slice.Center);
+
+            double delta_r = radius - prev_slice.Radius;
+            double sum_r = radius + prev_slice.Radius;
+
+            // 1) one ball is inside other, no intersections - engagement is 0, mark the distance as negative
+            // 2) balls are spaced too far and do not intersect, engagement is 0, distance is positive
+            // 3) balls are intersect, engagement is valid
+
+            if (_dist <= Math.Abs(delta_r))
+            {
+                _max_engagement = 0;
+                _dist = -_dist;
+                return;
+            }
+
+            if (_dist >= sum_r)
+            {
+                _max_engagement = 0;
+                return;
+            }
+
+            _max_engagement = _dist + delta_r;
 
             Line2F insects = _prev_slice.Ball.CircleIntersect(_ball);
 
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
+            {
+                // CamBam intersect routine has failed. which result should we report ?
+                Host.err("no expected intersections found - strange");
+                _max_engagement = 0;
                 return;
+            }
 
             Arc2F arc = new Arc2F(_ball.Center, insects.p1, insects.p2, _prev_slice.Dir);
 
             if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
                 arc = new Arc2F(_ball.Center, insects.p2, insects.p1, _prev_slice.Dir);             // flip arc start/end, preserving same direction
 
-            /*
-            // use the specified rotation direction or choose direction by the closest endpoint to alternate slices
-            if (dir != RotationDirection.Unknown)
-            {
-                arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
-
-                if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
-                    arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);             // flip arc start/end, preserving direction
-            }
-            else
-            {
-                Slice prev = last_slice != null ? last_slice : prev_slice;
-                Point2F prev_end = prev.Segments[prev.Segments.Count - 1].P2;
-                if (prev_end.DistanceTo(insects.p1) < prev_end.DistanceTo(insects.p2))
-                    arc = new Arc2F(_ball.Center, insects.p1, insects.p2, RotationDirection.CW);
-                else
-                    arc = new Arc2F(_ball.Center, insects.p2, insects.p1, RotationDirection.CW);
-
-                if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
-                    arc = new Arc2F(_ball.Center, arc.P1, arc.P2, RotationDirection.CCW);   // flip arc direction, preserving start/end
-            }
-            */
-
             _segments.Add(arc);
-            _is_undefined = false;
         }
 
         public Slice(Point2F center, double radius, RotationDirection dir)
         {
             _ball = new Circle2F(center, radius);
             _max_engagement = 0;
+            _dist = 0;
 
             if (dir == RotationDirection.CCW)
             {
@@ -279,8 +276,6 @@ namespace Matmill
                 _segments.Add(new Arc2F(center, radius, 240, -120));
                 _segments.Add(new Arc2F(center, radius, 120, -120));
             }
-
-            _is_undefined = false;
         }
     }
 }

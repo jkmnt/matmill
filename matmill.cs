@@ -93,9 +93,14 @@ namespace Matmill
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
 
-        private RotationDirection get_initial_dir()
+        private RotationDirection _initial_dir
         {
-            return _dir != RotationDirection.Unknown ? _dir : RotationDirection.CW;
+            get { return _dir != RotationDirection.Unknown ? _dir : RotationDirection.CW; }
+        }
+
+        private double _min_passable_mic_radius
+        {
+            get { return 0.1 * _cutter_r; } // 5 % of cutter diameter is seems to be ok
         }
 
         private bool should_emit(Pocket_path_item_type mask)
@@ -231,7 +236,7 @@ namespace Matmill
 
         private Slice find_prev_slice(Branch branch, Slice last_slice, Point2F pt, double radius, T4 ready_slices)
         {
-            Slice prev_slice = null;
+            Slice best_candidate = null;
 
             double min_engage = double.MaxValue;
 
@@ -239,21 +244,30 @@ namespace Matmill
             foreach (Slice candidate in candidates)
             {
                 Slice s = new Slice(candidate, last_slice, pt, radius);
-                if (! s.Is_undefined)
+                if (s.Max_engagement == 0)  // no intersections
+                {
+                    if (s.Dist > 0)        // circles are too far away, ignore
+                        continue;
+                    // circles are inside each other, distance is negative, that's ok
+                }
+                else
+                {
                     s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
+                }
+
 
                 double slice_engage = s.Max_engagement;
                 if (slice_engage > _max_engagement)
                     continue;
 
-                if (prev_slice == null || slice_engage < min_engage)
+                if (best_candidate == null || slice_engage < min_engage)
                 {
                     min_engage = slice_engage;
-                    prev_slice = candidate;
+                    best_candidate = candidate;
                 }
             }
 
-            return prev_slice;
+            return best_candidate;
         }
 
         private List<Slice> find_colliding_slices(Slice s, T4 ready_slices)
@@ -366,7 +380,7 @@ namespace Matmill
             else
             {
                 // XXX: lead dir may be wrong for the defined slices !
-                Slice s = new Slice(start_pt, start_radius, get_initial_dir());
+                Slice s = new Slice(start_pt, start_radius, _initial_dir);
                 branch.Slices.Add(s);
                 insert_in_t4(ready_slices, s);
                 prev_slice = s;
@@ -376,7 +390,7 @@ namespace Matmill
             double left = 0;
             while (true)
             {
-                Slice s;
+                Slice candidate = null;
 
                 double right = 1.0;
 
@@ -387,60 +401,79 @@ namespace Matmill
                     Point2F pt = branch.Curve.Get_parametric_pt(mid);
 
                     double radius = get_mic_radius(pt);
-                    s = new Slice(prev_slice, last_slice, pt, radius);
-                    if (! s.Is_undefined)
-                    {
-                        adjust_slice_dir(s, last_slice);
-                        s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
-                    }
 
-                    // prefer slight undershoot within the engagement tolerance
-                    if (s.Max_engagement > _max_engagement)
+                    if (radius < _min_passable_mic_radius)
                     {
-                        right = mid;
-                    }
-                    else if (Math.Abs(s.Max_engagement - _max_engagement) / _max_engagement < ENGAGEMENT_TOLERANCE_PERCENTAGE)
-                    {
-                        left = mid;
-                        break;
+                        right = mid;    // assuming the branch is always starting from passable mics, so it's a narrow channel and we should be more conservative, go left
                     }
                     else
                     {
-                        left = mid;
+                        Slice s = new Slice(prev_slice, last_slice, pt, radius);
+
+                        if (s.Max_engagement == 0)  // no intersections, two possible cases
+                        {
+                            if (s.Dist <= 0)        // balls are inside each other, go right
+                                left = mid;
+                            else
+                                right = mid;        // balls are spaced too far, go left
+                        }
+                        else    // intersection
+                        {
+                            // XXX: is this candidate is better than the last ?
+                            candidate = s;
+                            candidate.Refine(find_colliding_slices(candidate, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
+
+                            if (candidate.Max_engagement > _max_engagement)
+                            {
+                                right = mid;        // overshoot, go left
+                            }
+                            else if ((_max_engagement - candidate.Max_engagement) / _max_engagement > ENGAGEMENT_TOLERANCE_PERCENTAGE)
+                            {
+                                left = mid;         // undershoot outside the strict engagement tolerance, go right
+                            }
+                            else
+                            {
+                                left = mid;         // good slice inside the tolerance, stop search
+                                break;
+                            }
+                        }
                     }
 
                     Point2F other = branch.Curve.Get_parametric_pt(left == mid ? right : left);
-
                     if (pt.DistanceTo(other) < _general_tolerance)
                     {
-                        left = mid;
+                        left = mid;                 // range has shrinked, stop search
                         break;
                     }
                 }
 
-                if (s.Radius < _cutter_r) return;
-                if (s.Is_undefined) return;
+                if (candidate == null) return;
 
-                double err = (s.Max_engagement - _max_engagement) / _max_engagement;
+                double err = (candidate.Max_engagement - _max_engagement) / _max_engagement;
 
+                // discard slice if outside a little relaxed overshoot
                 if (err > ENGAGEMENT_TOLERANCE_PERCENTAGE * 10)
                 {
                     Host.err("failed to create slice within stepover limit. stopping slicing the branch");
                     return;
                 }
 
-                if (s.Max_engagement < _min_engagement) return;
+                // discard slice if outside the specified min engagement
+                if (candidate.Max_engagement < _min_engagement) return;
 
+                adjust_slice_dir(candidate, last_slice);
+
+                // generate branch entry after finding the first valid slice (before populating ready slices)
                 if (branch.Slices.Count == 0 && last_slice != null)
                 {
-                    branch.Entry = switch_branch(s, last_slice, ready_slices);
+                    branch.Entry = switch_branch(candidate, last_slice, ready_slices);
                     branch.Entry.Item_type = Pocket_path_item_type.BRANCH_ENTRY;
                 }
 
-                branch.Slices.Add(s);
-                insert_in_t4(ready_slices, s);
-                prev_slice = s;
-                last_slice = s;
+                branch.Slices.Add(candidate);
+                insert_in_t4(ready_slices, candidate);
+                prev_slice = candidate;
+                last_slice = candidate;
             }
         }
 
@@ -501,7 +534,7 @@ namespace Matmill
                     double r1 = get_mic_radius(line.p1);
                     double r2 = get_mic_radius(line.p2);
 
-                    if (r1 >= _cutter_r)
+                    if (r1 >= _min_passable_mic_radius)
                     {
                         pool.Add(line, false);
                         if (r1 > max_r)
@@ -510,7 +543,7 @@ namespace Matmill
                             tree_start = line.p1;
                         }
                     }
-                    if (r2 >= _cutter_r)
+                    if (r2 >= _min_passable_mic_radius)
                     {
                         pool.Add(line, true);
                         if (r2 > max_r)
@@ -529,7 +562,7 @@ namespace Matmill
                     Host.warn("startpoint is outside the pocket");
                     return null;
                 }
-                if (get_mic_radius(_startpoint) < _cutter_r)
+                if (get_mic_radius(_startpoint) < _min_passable_mic_radius)
                 {
                     Host.warn("startpoint radius < cutter radius");
                     return null;
@@ -545,7 +578,7 @@ namespace Matmill
                     double r1 = get_mic_radius(line.p1);
                     double r2 = get_mic_radius(line.p2);
 
-                    if (r1 >= _cutter_r)
+                    if (r1 >= _min_passable_mic_radius)
                     {
                         pool.Add(line, false);
                         double dist = _startpoint.DistanceTo(line.p1);
@@ -555,7 +588,7 @@ namespace Matmill
                             tree_start = line.p1;
                         }
                     }
-                    if (r2 >= _cutter_r)
+                    if (r2 >= _min_passable_mic_radius)
                     {
                         pool.Add(line, true);
                         double dist = _startpoint.DistanceTo(line.p2);
@@ -726,7 +759,7 @@ namespace Matmill
             // emit spiral toolpath for root
             if (should_emit(Pocket_path_item_type.LEADIN_SPIRAL))
             {
-                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, get_initial_dir());
+                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _initial_dir);
                 path.Add(new Pocket_path_item(Pocket_path_item_type.LEADIN_SPIRAL, spiral));
             }
 

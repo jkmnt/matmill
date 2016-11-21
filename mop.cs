@@ -51,6 +51,7 @@ namespace Matmill
         protected CBValue<double> _stepover;
         protected CBValue<double> _target_depth;
 
+        // TODO: make it the same as cut feedrate
         protected double _chord_feedrate = 2000.0;
         protected double _min_stepover_percentage = 0.9;
         protected double _segmented_slice_derating = 0.5;
@@ -228,6 +229,11 @@ namespace Matmill
             return base.GetZLayers(base.StockSurface.Cached, this.TargetDepth.Cached, this.DepthIncrement.Cached, this.FinalDepthIncrement.Cached);
         }
 
+        private bool is_inch_units()
+        {
+            return this._CADFile != null && this._CADFile.DrawingUnits == Units.Inches;
+        }
+
         private List<Toolpath> gen_ordered_toolpath(List<Pocket_path> trajectories, double[] depths)
         {
             List<Toolpath> toolpaths = new List<Toolpath>();
@@ -280,7 +286,7 @@ namespace Matmill
 
             Pocket_generator gen = new Pocket_generator(outline, islands);
 
-            gen.General_tolerance = _CADFile.DrawingUnits == Units.Inches ? 0.001 / 25.4 : 0.001;
+            gen.General_tolerance = is_inch_units() ? 0.001 / 25.4 : 0.001;
             gen.Cutter_d = base.ToolDiameter.Cached;
             gen.Max_engagement = base.ToolDiameter.Cached * _stepover.Cached;
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
