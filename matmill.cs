@@ -248,7 +248,8 @@ namespace Matmill
                 {
                     if (s.Dist > 0)        // circles are too far away, ignore
                         continue;
-                    // circles are inside each other, distance is negative, that's ok
+                    // circles are inside each other, distance is negative, that's ok.
+                    // this slice is a good candidate
                 }
                 else
                 {
@@ -263,6 +264,26 @@ namespace Matmill
                 if (best_candidate == null || slice_engage < min_engage)
                 {
                     min_engage = slice_engage;
+                    best_candidate = candidate;
+                }
+            }
+
+            return best_candidate;
+        }
+
+        private Slice find_nearest_slice(Branch branch, Point2F pt)
+        {
+            Slice best_candidate = null;
+
+            double min_dist = double.MaxValue;
+
+            List<Slice> candidates = branch.Get_upstream_roadblocks();
+            foreach (Slice candidate in candidates)
+            {
+                double dist = candidate.Center.DistanceTo(pt);
+                if (dist < min_dist)
+                {
+                    min_dist = dist;
                     best_candidate = candidate;
                 }
             }
@@ -370,7 +391,8 @@ namespace Matmill
             if (branch.Parent != null)
             {
                 // non-initial slice
-                prev_slice = find_prev_slice(branch, last_slice, start_pt, start_radius, ready_slices);
+                //prev_slice = find_prev_slice(branch, last_slice, start_pt, start_radius, ready_slices);
+                prev_slice = find_nearest_slice(branch, start_pt);
                 if (prev_slice == null)
                 {
                     Host.warn("failed to attach branch");

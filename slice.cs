@@ -244,8 +244,10 @@ namespace Matmill
 
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
             {
-                // CamBam intersect routine has failed. which result should we report ?
-                Host.err("no expected intersections found - strange");
+                // try to return meaningful result even if CB routine had failed (unlikely)
+                Host.err("no intersections found there intersections should be (_prev_slice.Ball.CircleIntersect(_ball))");
+                if (_dist <= radius || _dist <= prev_slice.Radius)
+                    _dist = -Math.Abs(_dist);
                 _max_engagement = 0;
                 return;
             }
