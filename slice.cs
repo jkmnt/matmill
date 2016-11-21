@@ -220,10 +220,27 @@ namespace Matmill
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
                 return;
 
-            Arc2F arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
+            Arc2F arc;
 
-            if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
-                arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
+            // use the specified rotation direction or choose direction by the closest endpoint to alternate slices
+            if (dir != RotationDirection.Unknown)
+            {
+                arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
+
+                if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))   
+                    arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);             // flip arc start/end, preserving direction
+            }
+            else
+            {
+                Point2F prev_end = _prev_slice.Segments[_prev_slice.Segments.Count - 1].P2;
+                if (prev_end.DistanceTo(insects.p1) < prev_end.DistanceTo(insects.p2))
+                    arc = new Arc2F(_ball.Center, insects.p1, insects.p2, RotationDirection.CW);
+                else
+                    arc = new Arc2F(_ball.Center, insects.p2, insects.p1, RotationDirection.CW);
+
+                if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
+                    arc = new Arc2F(_ball.Center, arc.P1, arc.P2, RotationDirection.CCW);   // flip arc direction, preserving start/end
+            }
 
             _segments.Add(arc);
             _is_undefined = false;

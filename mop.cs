@@ -225,7 +225,7 @@ namespace Matmill
                 {
                     // Last depth level of each pocket should have no return to base, it's useless
                     int i;
-                    for (i = 0; i < depths.Length - 1; i++)                                            
+                    for (i = 0; i < depths.Length - 1; i++)
                         toolpaths.Add(new Toolpath(traj, depths[i], true));
                     toolpaths.Add(new Toolpath(traj, depths[i], false));
                 }
@@ -275,8 +275,19 @@ namespace Matmill
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
             gen.Margin = base.RoughingClearance.Cached;
 
-            int spindle_dir = (int)(base.SpindleDirection.Cached != SpindleDirectionOptions.Off ? SpindleDirection.Cached : SpindleDirectionOptions.CW);
-            gen.Mill_direction = (RotationDirection)(_milling_direction.Cached == MillingDirectionOptions.Conventional ?  spindle_dir : -spindle_dir);
+            if (_milling_direction.Cached == MillingDirectionOptions.Mixed || base.SpindleDirection.Cached == SpindleDirectionOptions.Off)
+            {
+                gen.Mill_direction = RotationDirection.Unknown; // means 'mixed' here
+                gen.Lead_direction = RotationDirection.CW;
+            }
+            else
+            {
+                int dir = (int)(base.SpindleDirection.Cached);
+                if (_milling_direction.Cached == MillingDirectionOptions.Climb)
+                    dir = -dir;
+                gen.Mill_direction = (RotationDirection)dir;
+                gen.Lead_direction = (RotationDirection)dir;
+            }
 
             return gen.run();
         }
@@ -327,7 +338,7 @@ namespace Matmill
 
             // rapids are possible only between depth levels of pocket and separate pockets
             foreach (Toolpath path in toolpaths)
-            {                
+            {
                 if (! lastpt.IsUndefined)
                 {
                     Point3F to = path.Trajectory[0].FirstPoint;
@@ -345,7 +356,7 @@ namespace Matmill
                         p.Add(to);
                         rapids.Add(p);
                     }
-                }                
+                }
 
                 // NOTE: we're discarding last path item if return to base should be disabled for this segment
                 lastpt = path.Trajectory[path.Trajectory.Count - (path.Should_return_to_base ? 1 : 2)].LastPoint;
@@ -453,7 +464,7 @@ namespace Matmill
                     // emit chordal segment to the start of polyline with the chord feedrate.
                     // looks like this low-level hack is the only way to include move with custom feedrate it cambam
                     // no retracts/rapids are needed, path is continuous
-                    // emit arc after that. gcg should change feedrate to the cut feedrate internally                                            
+                    // emit arc after that. gcg should change feedrate to the cut feedrate internally
                     Point3F pt = new Point3F(item.Points[0].Point.X, item.Points[0].Point.Y, path.Depth);
                     gcg.ApplyGCodeOrigin(ref pt);
                     gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
@@ -474,7 +485,7 @@ namespace Matmill
                     }
                 }
                 else
-                { 
+                {
                     throw new Exception("unknown item type in pocket trajectory");
                 }
             }

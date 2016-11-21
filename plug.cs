@@ -86,6 +86,13 @@ namespace Matmill
                         if (cc is CAMToolStrip)
                         {
                             CAMToolStrip strip = (CAMToolStrip)cc;
+
+                            // check if 'Custom CAMToolbar plugin' already iserted us
+                            foreach (ToolStripButton b in strip.Items)
+                            {
+                                if (b.ToolTipText == button.ToolTipText)
+                                    return;
+                            }
                             strip.Items.Add(button);
                             return;
                         }
@@ -94,12 +101,9 @@ namespace Matmill
             }
         }
 
-        private static void on_load(object sender, EventArgs e)
+        private static void on_window_shown(object sender, EventArgs e)
         {
-            //HACK remove handler after the first firing.
-            // maybe it will fix the conflict with the 'Custom Toolbar' plugin
-            // and the duplicate toolbar icon
-            ThisApplication.TopWindow.Load -= on_load;
+            ThisApplication.TopWindow.Shown -= on_window_shown;
 
             ToolStripButton button = new ToolStripButton();
             button.ToolTipText = plug_text_name;
@@ -127,8 +131,9 @@ namespace Matmill
 
             insert_in_context_menu(ui, menu_entry);
 
-            // defer attachment to toolbar until the full load
-            ThisApplication.TopWindow.Load += on_load;
+            // defer attachment to toolbar until the first show.
+            // Custom CAM Toolbar plugin (if installed) may already attached us after Load event, so we react on later Shown event
+            ThisApplication.TopWindow.Shown += on_window_shown;
 
             if (CADFile.ExtraTypes == null)
 				CADFile.ExtraTypes = new List<Type>();

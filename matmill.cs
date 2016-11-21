@@ -78,6 +78,7 @@ namespace Matmill
         private double _segmented_slice_engagement_derating_k = 0.5;
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
+        private RotationDirection _lead_dir = RotationDirection.CW;
         private Pocket_path_item_type _emit_options =    Pocket_path_item_type.BRANCH_ENTRY
                                                        | Pocket_path_item_type.CHORD
                                                        | Pocket_path_item_type.LEADIN_SPIRAL
@@ -90,6 +91,7 @@ namespace Matmill
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public Pocket_path_item_type Emit_options                 { set { _emit_options = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
+        public RotationDirection Lead_direction                   { set { _lead_dir = value; } }
         public double Segmented_slice_engagement_derating_k       { set { _segmented_slice_engagement_derating_k = value; } }
 
         private bool should_emit(Pocket_path_item_type mask)
@@ -345,7 +347,7 @@ namespace Matmill
             }
             else
             {
-                Slice s = new Slice(start_pt, start_radius, _dir);
+                Slice s = new Slice(start_pt, start_radius, _lead_dir);
                 branch.Slices.Add(s);
                 insert_in_t4(ready_slices, s);
                 prev_slice = s;
@@ -702,7 +704,7 @@ namespace Matmill
             // emit spiral toolpath for root
             if (should_emit(Pocket_path_item_type.LEADIN_SPIRAL))
             {
-                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _dir);
+                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _lead_dir);
                 path.Add(new Pocket_path_item(Pocket_path_item_type.LEADIN_SPIRAL, spiral));
             }
 
