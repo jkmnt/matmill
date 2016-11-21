@@ -54,6 +54,7 @@ namespace Matmill
         protected double _chord_feedrate = 2000.0;
         protected double _min_stepover_percentage = 0.9;
         protected double _segmented_slice_derating = 0.5;
+        protected bool _may_return_to_base = true;
 
         //--- invisible and non-serializeable properties
 
@@ -192,6 +193,18 @@ namespace Matmill
 			set { _segmented_slice_derating = value; }
 		}
 
+        [
+            CBAdvancedValue,
+            Category("Options"),
+            Description("Try to return to the start point without rapids (if required)"),
+            DisplayName("Return To Base")
+        ]
+		public bool May_return_to_base
+		{
+			get { return this._may_return_to_base; }
+			set { _may_return_to_base = value; }
+		}
+
         //-- read-only About field
 
         [
@@ -219,14 +232,16 @@ namespace Matmill
         {
             List<Toolpath> toolpaths = new List<Toolpath>();
 
-            if (_cut_ordering.Cached == CutOrderingOption.DepthFirst)
+            // cut ordering == level first is meaningful only for a several pockets
+            if (trajectories.Count < 2 || _cut_ordering.Cached == CutOrderingOption.DepthFirst)
             {
                 foreach (Pocket_path traj in trajectories)
                 {
-                    // Last depth level of each pocket should have no return to base, it's useless
+                    // last depth level of each pocket should have no return to base, it's useless
+                    // intermediate levels may have returns if not disabled by setting
                     int i;
                     for (i = 0; i < depths.Length - 1; i++)
-                        toolpaths.Add(new Toolpath(traj, depths[i], true));
+                        toolpaths.Add(new Toolpath(traj, depths[i], _may_return_to_base));
                     toolpaths.Add(new Toolpath(traj, depths[i], false));
                 }
             }
@@ -264,12 +279,17 @@ namespace Matmill
             }
 
             Pocket_generator gen = new Pocket_generator(outline, islands);
+
+            gen.General_tolerance = _CADFile.DrawingUnits == Units.Inches ? 0.001 / 25.4 : 0.001;
             gen.Cutter_d = base.ToolDiameter.Cached;
             gen.Max_engagement = base.ToolDiameter.Cached * _stepover.Cached;
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
             gen.Segmented_slice_engagement_derating_k = _segmented_slice_derating;
 
-            Pocket_path_item_type to_emit = Pocket_path_item_type.LEADIN_SPIRAL | Pocket_path_item_type.BRANCH_ENTRY | Pocket_path_item_type.SEGMENT | Pocket_path_item_type.RETURN_TO_BASE;
+            Pocket_path_item_type to_emit =     Pocket_path_item_type.LEADIN_SPIRAL
+                                              | Pocket_path_item_type.BRANCH_ENTRY
+                                              | Pocket_path_item_type.SEGMENT
+                                              | Pocket_path_item_type.RETURN_TO_BASE;
             gen.Emit_options = to_emit;
 
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
@@ -278,7 +298,6 @@ namespace Matmill
             if (_milling_direction.Cached == MillingDirectionOptions.Mixed || base.SpindleDirection.Cached == SpindleDirectionOptions.Off)
             {
                 gen.Mill_direction = RotationDirection.Unknown; // means 'mixed' here
-                gen.Lead_direction = RotationDirection.CW;
             }
             else
             {
@@ -286,7 +305,6 @@ namespace Matmill
                 if (_milling_direction.Cached == MillingDirectionOptions.Climb)
                     dir = -dir;
                 gen.Mill_direction = (RotationDirection)dir;
-                gen.Lead_direction = (RotationDirection)dir;
             }
 
             return gen.run();

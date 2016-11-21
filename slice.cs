@@ -14,14 +14,15 @@ namespace Matmill
         private double _max_engagement;
         private bool _is_undefined = true;
 
-        public Circle2F Ball { get { return _ball; } }
-        public bool Is_undefined { get { return _is_undefined; } }
+        public Circle2F Ball            { get { return _ball; } }
+        public bool Is_undefined        { get { return _is_undefined; } }
 
-        public Point2F Center { get { return _ball.Center; } }
-        public double Radius { get { return _ball.Radius; } }
-        public Slice Prev { get { return _prev_slice; } }
-        public double Max_engagement { get { return _max_engagement; } }
-        public List<Arc2F> Segments { get { return _segments; } }
+        public Point2F Center           { get { return _ball.Center; } }
+        public double Radius            { get { return _ball.Radius; } }
+        public Slice Prev               { get { return _prev_slice; } }
+        public double Max_engagement    { get { return _max_engagement; } }
+        public List<Arc2F> Segments     { get { return _segments; } }
+        public RotationDirection Dir    { get { return _segments.Count > 0 ? _segments[0].Direction : RotationDirection.Unknown; } }
 
         private double angle_between_vectors(Vector2F v0, Vector2F v1, RotationDirection dir)
         {
@@ -209,7 +210,16 @@ namespace Matmill
             }
         }
 
-        public Slice(Slice prev_slice, Point2F center, double radius, RotationDirection dir)
+        public void Flip_dir()
+        {
+            for (int i = 0; i < _segments.Count; i++)
+            {
+                Arc2F arc = _segments[i];
+                _segments[i] = new Arc2F(arc.Center, arc.P2, arc.P1, arc.Direction == RotationDirection.CCW ? RotationDirection.CW : RotationDirection.CCW);
+            }
+        }
+
+        public Slice(Slice prev_slice, Slice last_slice, Point2F center, double radius)
         {
             _prev_slice = prev_slice;
             _ball = new Circle2F(center, radius);
@@ -220,19 +230,24 @@ namespace Matmill
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
                 return;
 
-            Arc2F arc;
+            Arc2F arc = new Arc2F(_ball.Center, insects.p1, insects.p2, _prev_slice.Dir);
 
+            if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
+                arc = new Arc2F(_ball.Center, insects.p2, insects.p1, _prev_slice.Dir);             // flip arc start/end, preserving same direction
+
+            /*
             // use the specified rotation direction or choose direction by the closest endpoint to alternate slices
             if (dir != RotationDirection.Unknown)
             {
                 arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
 
-                if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))   
+                if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
                     arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);             // flip arc start/end, preserving direction
             }
             else
             {
-                Point2F prev_end = _prev_slice.Segments[_prev_slice.Segments.Count - 1].P2;
+                Slice prev = last_slice != null ? last_slice : prev_slice;
+                Point2F prev_end = prev.Segments[prev.Segments.Count - 1].P2;
                 if (prev_end.DistanceTo(insects.p1) < prev_end.DistanceTo(insects.p2))
                     arc = new Arc2F(_ball.Center, insects.p1, insects.p2, RotationDirection.CW);
                 else
@@ -241,6 +256,7 @@ namespace Matmill
                 if (!arc.VectorInsideArc(new Vector2F(_prev_slice.Center, _ball.Center)))
                     arc = new Arc2F(_ball.Center, arc.P1, arc.P2, RotationDirection.CCW);   // flip arc direction, preserving start/end
             }
+            */
 
             _segments.Add(arc);
             _is_undefined = false;

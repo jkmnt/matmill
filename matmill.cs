@@ -61,7 +61,6 @@ namespace Matmill
 
     class Pocket_generator
     {
-        private const double GENERAL_TOLERANCE = 0.001;
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
         private const double ENGAGEMENT_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
@@ -71,6 +70,7 @@ namespace Matmill
 
         private readonly T4 _reg_t4;
 
+        private double _general_tolerance = 0.001;
         private double _cutter_r = 1.5;
         private double _margin = 0;
         private double _max_engagement = 3.0 * 0.4;
@@ -78,21 +78,25 @@ namespace Matmill
         private double _segmented_slice_engagement_derating_k = 0.5;
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
-        private RotationDirection _lead_dir = RotationDirection.CW;
         private Pocket_path_item_type _emit_options =    Pocket_path_item_type.BRANCH_ENTRY
                                                        | Pocket_path_item_type.CHORD
                                                        | Pocket_path_item_type.LEADIN_SPIRAL
                                                        | Pocket_path_item_type.SEGMENT;
 
         public double Cutter_d                                    { set { _cutter_r = value / 2.0;}}
+        public double General_tolerance                           { set { _general_tolerance = value; } }
+        public double Margin                                      { set { _margin = value; } }
         public double Max_engagement                              { set { _max_engagement = value; } }
         public double Min_engagement                              { set { _min_engagement = value; } }
-        public double Margin                                      { set { _margin = value; } }
-        public Point2F Startpoint                                 { set { _startpoint = value; } }
-        public Pocket_path_item_type Emit_options                 { set { _emit_options = value; } }
-        public RotationDirection Mill_direction                   { set { _dir = value; } }
-        public RotationDirection Lead_direction                   { set { _lead_dir = value; } }
         public double Segmented_slice_engagement_derating_k       { set { _segmented_slice_engagement_derating_k = value; } }
+        public Pocket_path_item_type Emit_options                 { set { _emit_options = value; } }
+        public Point2F Startpoint                                 { set { _startpoint = value; } }
+        public RotationDirection Mill_direction                   { set { _dir = value; } }
+
+        private RotationDirection get_initial_dir()
+        {
+            return _dir != RotationDirection.Unknown ? _dir : RotationDirection.CW;
+        }
 
         private bool should_emit(Pocket_path_item_type mask)
         {
@@ -115,15 +119,15 @@ namespace Matmill
 
         private bool is_line_inside_region(Line2F line, bool should_analize_inner_intersections)
         {
-            if (!_outline.PointInPolyline(line.p1, GENERAL_TOLERANCE)) return false;     // p1 is outside of outer curve boundary
-            if (!_outline.PointInPolyline(line.p2, GENERAL_TOLERANCE)) return false;  // p2 is outside of outer curve boundary
-            if (should_analize_inner_intersections && _outline.LineIntersections(line, GENERAL_TOLERANCE).Length != 0) return false; // both endpoints are inside, but there are intersections, outer curve must be concave
+            if (!_outline.PointInPolyline(line.p1, _general_tolerance)) return false;     // p1 is outside of outer curve boundary
+            if (!_outline.PointInPolyline(line.p2, _general_tolerance)) return false;  // p2 is outside of outer curve boundary
+            if (should_analize_inner_intersections && _outline.LineIntersections(line, _general_tolerance).Length != 0) return false; // both endpoints are inside, but there are intersections, outer curve must be concave
 
             foreach (Polyline island in _islands)
             {
-                if (island.PointInPolyline(line.p1, GENERAL_TOLERANCE)) return false;  // p1 is inside hole
-                if (island.PointInPolyline(line.p2, GENERAL_TOLERANCE)) return false;  // p2 is inside hole
-                if (should_analize_inner_intersections && island.LineIntersections(line, GENERAL_TOLERANCE).Length != 0) return false; // p1, p2 are outside hole, but there are intersections
+                if (island.PointInPolyline(line.p1, _general_tolerance)) return false;  // p1 is inside hole
+                if (island.PointInPolyline(line.p2, _general_tolerance)) return false;  // p2 is inside hole
+                if (should_analize_inner_intersections && island.LineIntersections(line, _general_tolerance).Length != 0) return false; // p1, p2 are outside hole, but there are intersections
             }
             return true;
         }
@@ -180,14 +184,14 @@ namespace Matmill
                 }
             }
 
-            ys[hackpoint_idx] -= GENERAL_TOLERANCE;
+            ys[hackpoint_idx] -= _general_tolerance;
 
             min_x -= VORONOI_MARGIN;
             max_x += VORONOI_MARGIN;
             min_y -= VORONOI_MARGIN;
             max_y += VORONOI_MARGIN;
 
-            List<GraphEdge> edges = new Voronoi(GENERAL_TOLERANCE).generateVoronoi(xs, ys, min_x, max_x, min_y, max_y);
+            List<GraphEdge> edges = new Voronoi(_general_tolerance).generateVoronoi(xs, ys, min_x, max_x, min_y, max_y);
 
             Host.log("voronoi partitioning completed. got {0} edges", edges.Count);
 
@@ -197,7 +201,7 @@ namespace Matmill
             {
                 Line2F seg = new Line2F(e.x1, e.y1, e.x2, e.y2);
 
-                if (seg.Length() < GENERAL_TOLERANCE) continue;    // extra small segment, discard
+                if (seg.Length() < _general_tolerance) continue;    // extra small segment, discard
                 if (! is_line_inside_region(seg, ANALIZE_INNER_INTERSECTIONS)) continue;
                 inner_segments.Add(seg);
             }
@@ -225,7 +229,7 @@ namespace Matmill
             return radius - _cutter_r - _margin;
         }
 
-        private Slice find_prev_slice(Branch branch, Point2F pt, double radius, T4 ready_slices)
+        private Slice find_prev_slice(Branch branch, Slice last_slice, Point2F pt, double radius, T4 ready_slices)
         {
             Slice prev_slice = null;
 
@@ -234,7 +238,7 @@ namespace Matmill
             List<Slice> candidates = branch.Get_upstream_roadblocks();
             foreach (Slice candidate in candidates)
             {
-                Slice s = new Slice(candidate, pt, radius, _dir);
+                Slice s = new Slice(candidate, last_slice, pt, radius);
                 if (! s.Is_undefined)
                     s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
 
@@ -266,7 +270,7 @@ namespace Matmill
         }
 
         // find least common ancestor for the both branches
-        Pocket_path_item switch_branch(Slice dst, Slice src, T4 ready_slices, Point2F dst_pt, Point2F src_pt)
+        private Pocket_path_item switch_branch(Slice dst, Slice src, T4 ready_slices, Point2F dst_pt, Point2F src_pt)
         {
             List<Slice> path = new List<Slice>();
 
@@ -320,9 +324,23 @@ namespace Matmill
             return p;
         }
 
-        Pocket_path_item switch_branch(Slice dst, Slice src, T4 ready_slices)
+        private Pocket_path_item switch_branch(Slice dst, Slice src, T4 ready_slices)
         {
             return switch_branch(dst, src, ready_slices, Point2F.Undefined, Point2F.Undefined);
+        }
+
+        // optionally flip slice if any direction is allowed and flipping will reduce travel time
+        private void adjust_slice_dir(Slice slice, Slice last_slice)
+        {
+            if (_dir != RotationDirection.Unknown) return;
+            if (last_slice == null) return;
+
+            Point2F end = last_slice.Segments[last_slice.Segments.Count - 1].P2;
+            Point2F p1 = slice.Segments[0].P1;
+            Point2F p2 = slice.Segments[slice.Segments.Count - 1].P2;
+
+            if (end.DistanceTo(p2) < end.DistanceTo(p1))
+                slice.Flip_dir();
         }
 
         private void roll(Branch branch, T4 ready_slices, ref Slice last_slice)
@@ -338,7 +356,7 @@ namespace Matmill
             if (branch.Parent != null)
             {
                 // non-initial slice
-                prev_slice = find_prev_slice(branch, start_pt, start_radius, ready_slices);
+                prev_slice = find_prev_slice(branch, last_slice, start_pt, start_radius, ready_slices);
                 if (prev_slice == null)
                 {
                     Host.warn("failed to attach branch");
@@ -347,10 +365,12 @@ namespace Matmill
             }
             else
             {
-                Slice s = new Slice(start_pt, start_radius, _lead_dir);
+                // XXX: lead dir may be wrong for the defined slices !
+                Slice s = new Slice(start_pt, start_radius, get_initial_dir());
                 branch.Slices.Add(s);
                 insert_in_t4(ready_slices, s);
                 prev_slice = s;
+                last_slice = s;
             }
 
             double left = 0;
@@ -367,9 +387,10 @@ namespace Matmill
                     Point2F pt = branch.Curve.Get_parametric_pt(mid);
 
                     double radius = get_mic_radius(pt);
-                    s = new Slice(prev_slice, pt, radius, _dir);
+                    s = new Slice(prev_slice, last_slice, pt, radius);
                     if (! s.Is_undefined)
                     {
+                        adjust_slice_dir(s, last_slice);
                         s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
                     }
 
@@ -390,7 +411,7 @@ namespace Matmill
 
                     Point2F other = branch.Curve.Get_parametric_pt(left == mid ? right : left);
 
-                    if (pt.DistanceTo(other) < GENERAL_TOLERANCE)
+                    if (pt.DistanceTo(other) < _general_tolerance)
                     {
                         left = mid;
                         break;
@@ -398,6 +419,7 @@ namespace Matmill
                 }
 
                 if (s.Radius < _cutter_r) return;
+                if (s.Is_undefined) return;
 
                 double err = (s.Max_engagement - _max_engagement) / _max_engagement;
 
@@ -455,7 +477,7 @@ namespace Matmill
 
         private Branch build_tree(List<Line2F> segments)
         {
-            Segpool pool = new Segpool(segments.Count, GENERAL_TOLERANCE);
+            Segpool pool = new Segpool(segments.Count, _general_tolerance);
             Branch root = new Branch(null);
             Point2F tree_start = Point2F.Undefined;
 
@@ -612,24 +634,24 @@ namespace Matmill
 
             foreach (Slice s in colliders)
             {
-                Line2F insects = s.Ball.LineIntersect(path, GENERAL_TOLERANCE);
+                Line2F insects = s.Ball.LineIntersect(path, _general_tolerance);
 
                 if (insects.p1.IsUndefined && insects.p2.IsUndefined)
                 {
                     // no intersections: check if whole path lay inside the circle
-                    if (   a.DistanceTo(s.Ball.Center) < s.Ball.Radius + GENERAL_TOLERANCE
-                        && b.DistanceTo(s.Ball.Center) < s.Ball.Radius + GENERAL_TOLERANCE)
+                    if (   a.DistanceTo(s.Ball.Center) < s.Ball.Radius + _general_tolerance
+                        && b.DistanceTo(s.Ball.Center) < s.Ball.Radius + _general_tolerance)
                         return true;
                 }
                 else if (insects.p1.IsUndefined || insects.p2.IsUndefined)
                 {
                     // single intersection. one of the path ends must be inside the circle, otherwise it is a tangent case
                     // and should be ignored
-                    if (a.DistanceTo(s.Ball.Center) < s.Ball.Radius + GENERAL_TOLERANCE)
+                    if (a.DistanceTo(s.Ball.Center) < s.Ball.Radius + _general_tolerance)
                     {
                         running_collides.Add(s);
                     }
-                    else if (b.DistanceTo(s.Ball.Center) < s.Ball.Radius + GENERAL_TOLERANCE)
+                    else if (b.DistanceTo(s.Ball.Center) < s.Ball.Radius + _general_tolerance)
                     {
                         ;
                     }
@@ -672,7 +694,7 @@ namespace Matmill
                         running_collides.Add(s);
                 }
 
-                if (running_collides.Count == 0 && (ins.Key + GENERAL_TOLERANCE < a.DistanceTo(b)))
+                if (running_collides.Count == 0 && (ins.Key + _general_tolerance < a.DistanceTo(b)))
                     return false;
             }
 
@@ -704,7 +726,7 @@ namespace Matmill
             // emit spiral toolpath for root
             if (should_emit(Pocket_path_item_type.LEADIN_SPIRAL))
             {
-                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _lead_dir);
+                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, get_initial_dir());
                 path.Add(new Pocket_path_item(Pocket_path_item_type.LEADIN_SPIRAL, spiral));
             }
 
@@ -752,7 +774,7 @@ namespace Matmill
                         if (should_emit(Pocket_path_item_type.SEGMENT))
                         {
                             Pocket_path_item slice = new Pocket_path_item(Pocket_path_item_type.SEGMENT);
-                            slice.Add(s.Segments[segidx], GENERAL_TOLERANCE);
+                            slice.Add(s.Segments[segidx], _general_tolerance);
                             //arc.Tag = String.Format("me {0:F4}, so {1:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
                             path.Add(slice);
                         }
