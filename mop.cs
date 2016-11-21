@@ -19,11 +19,13 @@ namespace Matmill
     {
         public readonly Pocket_path Trajectory;
         public readonly double Depth;
+        public readonly double Top;
         public readonly bool Should_return_to_base;
-        public Toolpath(Pocket_path path, double depth, bool return_to_base)
+        public Toolpath(Pocket_path path, double depth, double top, bool return_to_base)
         {
             this.Trajectory = path;
             this.Depth = depth;
+            this.Top = top;
             this.Should_return_to_base = return_to_base;
         }
     }
@@ -53,11 +55,12 @@ namespace Matmill
 
         // TODO: make it the same as cut feedrate
         protected double _chord_feedrate = 2000.0;
+
         protected double _min_stepover_percentage = 0.9;
         protected double _segmented_slice_derating = 0.5;
         protected bool _may_return_to_base = true;
 
-        //--- invisible and non-serializeable properties
+        //--- invisible and non-serializable properties
 
         [XmlIgnore, Browsable(false)]
 		public override string MOPTypeName
@@ -243,20 +246,28 @@ namespace Matmill
             {
                 foreach (Pocket_path traj in trajectories)
                 {
+                    double surface = base.StockSurface.Cached;
+
                     // last depth level of each pocket should have no return to base, it's useless
                     // intermediate levels may have returns if not disabled by setting
                     int i;
                     for (i = 0; i < depths.Length - 1; i++)
-                        toolpaths.Add(new Toolpath(traj, depths[i], _may_return_to_base));
-                    toolpaths.Add(new Toolpath(traj, depths[i], false));
+                    {
+                        toolpaths.Add(new Toolpath(traj, depths[i], surface, _may_return_to_base));
+                        surface = depths[i];
+                    }
+                    toolpaths.Add(new Toolpath(traj, depths[i], surface, false));
                 }
             }
             else
             {
+                double surface = base.StockSurface.Cached;
+
                 foreach (double depth in depths)
                 {
                     foreach (Pocket_path traj in trajectories)
-                        toolpaths.Add(new Toolpath(traj, depth, false));
+                        toolpaths.Add(new Toolpath(traj, depth, surface, false));
+                    surface = depth;
                 }
             }
 
@@ -610,12 +621,11 @@ namespace Matmill
             Chord_feedrate = src.Chord_feedrate;
             Min_stepover = src.Min_stepover;
             Segmented_slice_derating = src.Segmented_slice_derating;
+            May_return_to_base = src.May_return_to_base;
         }
 
         public Mop_matmill()
         {
-
-
         }
 
         public Mop_matmill(CADFile CADFile, ICollection<Entity> plist) : base(CADFile, plist)

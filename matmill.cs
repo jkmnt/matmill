@@ -95,6 +95,7 @@ namespace Matmill
 
         private RotationDirection _initial_dir
         {
+            // since unknown is 'dont care', CW is ok
             get { return _dir != RotationDirection.Unknown ? _dir : RotationDirection.CW; }
         }
 
@@ -401,7 +402,6 @@ namespace Matmill
             }
             else
             {
-                // XXX: lead dir may be wrong for the defined slices !
                 Slice s = new Slice(start_pt, start_radius, _initial_dir);
                 branch.Slices.Add(s);
                 insert_in_t4(ready_slices, s);
