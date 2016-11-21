@@ -96,6 +96,11 @@ namespace Matmill
 
         private static void on_load(object sender, EventArgs e)
         {
+            //HACK remove handler after the first firing.
+            // maybe it will fix the conflict with the 'Custom Toolbar' plugin
+            // and the duplicate toolbar icon
+            ThisApplication.TopWindow.Load -= on_load;
+
             ToolStripButton button = new ToolStripButton();
             button.ToolTipText = plug_text_name;
             button.Click += mop_onclick;
