@@ -1,19 +1,14 @@
-using System;
-using System.Collections;
 using System.Collections.Generic;
 
-namespace Matmill
+using CamBam.CAD;
+
+namespace Medial_demo
 {
     class Branch
     {
-        public delegate void Visitor(Branch b);
-
-        public readonly Curve Curve = new Curve();
+        public readonly Polyline Curve = new Polyline();
         public readonly Branch Parent = null;
         public readonly List<Branch> Children = new List<Branch>();
-        public readonly List<Slice> Slices = new List<Slice>();
-        public Pocket_path_item Entry = null;
-        public string Debug = "";
 
         public bool Is_leaf { get { return Children.Count == 0; } }
 
@@ -26,16 +21,9 @@ namespace Matmill
             return result;
         }
 
-        public void Df_visit(Visitor v)
-        {
-            v(this);
-            foreach (Branch b in Children)
-                b.Df_visit(v);
-        }
-
         public double Deep_distance()
         {
-            double dist = Curve.Length;
+            double dist = Curve.GetPerimeter();
             foreach (Branch b in Children)
                 dist += b.Deep_distance();
 
@@ -50,55 +38,6 @@ namespace Matmill
                 parents.Add(p);
             }
             return parents;
-        }
-
-        // Get all the slices blocking path (meet first) while traveling up the branch
-        // (and followind neighbour downstream subbranches)
-        public List<Slice> Get_upstream_roadblocks()
-        {
-            List<Slice> candidates = new List<Slice>();
-
-            for (Branch visited = this; visited.Parent != null; visited = visited.Parent)
-            {
-                Branch upstream = visited.Parent;
-
-                if (upstream.Children.Count != 0)
-                {
-                    foreach (Branch child in upstream.Children)
-                    {
-                        // except the path we're walking now
-                        if (child != visited)
-                            candidates.AddRange(child.Get_downstream_roadblocks());
-                    }
-                }
-
-                if (upstream.Slices.Count != 0)
-                {
-                    candidates.Add(upstream.Slices[upstream.Slices.Count - 1]);
-                    break;
-                }
-            }
-
-            return candidates;
-        }
-
-        // Get all the slices blocking path (meet first) while traveling down the branch
-        // and next subbranches
-        public List<Slice> Get_downstream_roadblocks()
-        {
-            List<Slice> candidates = new List<Slice>();
-
-            if (Slices.Count != 0)
-            {
-                candidates.Add(Slices[0]);
-            }
-            else
-            {
-                foreach (Branch c in Children)
-                    candidates.AddRange(c.Get_downstream_roadblocks());
-            }
-
-            return candidates;
         }
 
         public Branch(Branch parent)

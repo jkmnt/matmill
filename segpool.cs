@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 using CamBam.Geom;
 
-namespace Matmill
+namespace Medial_demo
 {
     // special structure for a fast joining of chained line segments
     // segments (references to them) are stored in dictionary under the long integer key, crafted from

@@ -9,7 +9,7 @@ using CamBam.UI;
 using CamBam.CAD;
 using CamBam.Geom;
 
-namespace Matmill
+namespace Medial_demo
 {
     class Host
     {
@@ -19,130 +19,92 @@ namespace Matmill
         }
         static public void warn(string s, params object[] args)
         {
-            ThisApplication.AddLogMessage("TrochoPock warning: " + s, args);
+            ThisApplication.AddLogMessage("warning: " + s, args);
         }
         static public void err(string s, params object[] args)
         {
-            ThisApplication.AddLogMessage("TrochoPock error: " + s, args);
+            ThisApplication.AddLogMessage("error: " + s, args);
         }
     }
 
     public class Matmill_plugin
     {
-        const string plug_text_name = "Trochoidal Pocket";
+
+        static private void gen_pocket(ShapeListItem shape)
+        {
+            Polyline outline;
+            Polyline[] islands;
+
+            if (shape.Shape is Polyline)
+            {
+                outline = (Polyline)shape.Shape;
+                islands = new Polyline[] { };
+            }
+            else if (shape.Shape is CamBam.CAD.Region)
+            {
+                CamBam.CAD.Region reg = (CamBam.CAD.Region)shape.Shape;
+                outline = reg.OuterCurve;
+                islands = reg.HoleCurves;
+            }
+            else
+            {
+                return;
+            }
+
+            Pocket_generator gen = new Pocket_generator(outline, islands);
+            // NOTE: metric
+            gen.Sample_step = 0.1;          // 0.1 mm 
+            gen.General_tolerance = 0.001;  // 0.001 mm
+            List<Polyline> medial_axis = gen.run();
+
+            if (medial_axis == null)
+                return;
+
+            foreach (Polyline p in medial_axis)
+                CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities.Add(p);
+        }
 
 
-        private static void mop_onclick(object sender, EventArgs ars)
+        private static void onclick(object sender, EventArgs ars)
         {
 			if (!PolylineUtils.ConfirmSelected(CamBamUI.MainUI.ActiveView))
-			{
 				return;
-			}
 
-			Mop_matmill mop = new Mop_matmill(CamBamUI.MainUI.ActiveView.CADFile, CamBamUI.MainUI.ActiveView.Selection);
-            CamBamUI.MainUI.InsertMOP(mop);
-        }
+            ShapeList shapes = new ShapeList();
+            shapes.ApplyTransformations = true;
+            shapes.AddEntities(new List<Entity>((Entity[]) CamBamUI.MainUI.ActiveView.SelectedEntities));
+            shapes = shapes.DetectRegions();
 
-        private static void insert_in_top_menu(CamBamUI ui, ToolStripMenuItem entry)
-        {
-            for (int i = 0; i < ui.Menus.mnuMachining.DropDownItems.Count; ++i)
+            // remove open polylines
+            for (int i = shapes.Count - 1; i >= 0; i--)
             {
-                ToolStripItem tsi = ui.Menus.mnuMachining.DropDownItems[i];
-                if (tsi is ToolStripSeparator || i == ui.Menus.mnuMachining.DropDownItems.Count - 1)
-                {
-                    ui.Menus.mnuMachining.DropDownItems.Insert(i, entry);
-                    return;
-                }
+                if (shapes[i].Shape is Polyline && !((Polyline)shapes[i].Shape).Closed)
+                    shapes.RemoveAt(i);
             }
-        }
 
-        private static void insert_in_context_menu(CamBamUI ui, ToolStripMenuItem entry)
-        {
-            foreach (ToolStripItem tsi in ui.ViewContextMenus.ViewContextMenu.Items)
-            {
-                if (tsi is ToolStripMenuItem && tsi.Name == "machineToolStripMenuItem")
-                {
-                    ToolStripMenuItem tsmi = (ToolStripMenuItem)tsi;
-                    for (int i = 0; i < tsmi.DropDownItems.Count; ++i)
-                    {
-                        if (tsmi.DropDownItems[i] is ToolStripSeparator || i == tsmi.DropDownItems.Count - 1)
-                        {
-                            tsmi.DropDownItems.Insert(i, entry);
-                            return;
-                        }
-                    }
-                }
-            }
-        }
+            if (shapes.Count == 0)
+                return;
 
-        private static void insert_in_toolbar(ToolStripButton button)
-        {
-            foreach (Control c in ThisApplication.TopWindow.Controls)
-            {
-                if (c is ToolStripContainer)
-                {
-                    foreach (Control cc in ((ToolStripContainer)c).TopToolStripPanel.Controls)
-                    {
-                        if (cc is CAMToolStrip)
-                        {
-                            CAMToolStrip strip = (CAMToolStrip)cc;
+            // add undo point
+            CamBamUI.MainUI.ActiveView.SuspendRefresh();
+            CamBamUI.MainUI.ActiveView.CADFile.Modified = true;
+            CamBamUI.MainUI.UndoBuffer.AddUndoPoint("Medial Demo");
+            CamBamUI.MainUI.ActiveView.CADFile.EnsureActiveLayer(true);
+            CamBamUI.MainUI.UndoBuffer.Add(CamBamUI.MainUI.ActiveView.CADFile.ActiveLayer.Entities);
 
-                            // check if 'Custom CAMToolbar plugin' already iserted us
-                            foreach (ToolStripButton b in strip.Items)
-                            {
-                                if (b.ToolTipText == button.ToolTipText)
-                                    return;
-                            }
-                            strip.Items.Add(button);
-                            return;
-                        }
-                    }
-                }
-            }
-        }
+            // generate
+            foreach (ShapeListItem shape in shapes)
+                gen_pocket(shape);
 
-        private static void on_window_shown(object sender, EventArgs e)
-        {
-            ThisApplication.TopWindow.Shown -= on_window_shown;
-
-            ToolStripButton button = new ToolStripButton();
-            button.ToolTipText = plug_text_name;
-            button.Click += mop_onclick;
-            button.Image = resources.cam_trochopock1;
-
-            insert_in_toolbar(button);
+            CamBamUI.MainUI.ActiveView.ResumeRefresh();
+            CamBamUI.MainUI.ActiveView.UpdateViewport();
         }
 
         public static void InitPlugin(CamBamUI ui)
         {
-            ToolStripMenuItem menu_entry;
-
-            menu_entry = new ToolStripMenuItem();
-            menu_entry.Text = plug_text_name;
-            menu_entry.Click += mop_onclick;
-            menu_entry.Image = resources.cam_trochopock1;
-
-            insert_in_top_menu(ui, menu_entry);
-
-            menu_entry = new ToolStripMenuItem();
-            menu_entry.Text = plug_text_name;
-            menu_entry.Click += mop_onclick;
-            menu_entry.Image = resources.cam_trochopock1;
-
-            insert_in_context_menu(ui, menu_entry);
-
-            // defer attachment to toolbar until the first show.
-            // Custom CAM Toolbar plugin (if installed) may already attached us after Load event, so we react on later Shown event
-            ThisApplication.TopWindow.Shown += on_window_shown;
-
-            if (CADFile.ExtraTypes == null)
-				CADFile.ExtraTypes = new List<Type>();
-			CADFile.ExtraTypes.Add(typeof(Mop_matmill));
-
-			Mop_matmill o = new Mop_matmill();
-			XmlSerializer xmlSerializer = new XmlSerializer(typeof(Mop_matmill));
-			MemoryStream stream = new MemoryStream();
-			xmlSerializer.Serialize(stream, o);
+            ToolStripMenuItem handler = new ToolStripMenuItem("Medial Demo");
+            handler.Click += onclick;
+            ui.Menus.mnuPlugins.DropDownItems.Add(handler);
         }
     }
 }

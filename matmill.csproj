@@ -8,7 +8,7 @@
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Matmill</RootNamespace>
-    <AssemblyName>trochopock</AssemblyName>
+    <AssemblyName>medial_demo</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
@@ -72,33 +72,12 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="branch.cs" />
-    <Compile Include="curve.cs" />
     <Compile Include="matmill.cs" />
-    <Compile Include="mop.cs" />
     <Compile Include="plug.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
-    <Compile Include="resources.Designer.cs">
-      <AutoGen>True</AutoGen>
-      <DesignTime>True</DesignTime>
-      <DependentUpon>resources.resx</DependentUpon>
-    </Compile>
     <Compile Include="segpool.cs" />
-    <Compile Include="slice.cs" />
-    <Compile Include="tree4.cs" />
     <Compile Include="Voronoi.cs" />
     <Compile Include="VoronoiElements.cs" />
-  </ItemGroup>
-  <ItemGroup>
-    <EmbeddedResource Include="resources.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
-      <LastGenOutput>resources.Designer.cs</LastGenOutput>
-    </EmbeddedResource>
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Resources\cam_trochopock1.bmp" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="Resources\cam_trochopock0.bmp" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
