@@ -552,6 +552,17 @@ namespace Matmill
             return outlines;
         }
 
+        public override Point3F GetInitialCutPoint()
+        {
+            if (_toolpaths.Count == 0) return Point3F.Undefined;
+            Toolpath tp0 = _toolpaths[0];
+            if (tp0.Trajectory.Count == 0) return Point3F.Undefined;
+            Pocket_path_item ppi = tp0.Trajectory[0];
+            if (ppi.Points.Count == 0) return Point3F.Undefined;
+            Point3F pt = ppi.Points[0].Point;
+            return new Point3F(pt.X, pt.Y, tp0.Depth);
+        }
+
         private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, Toolpath path)
         {
             foreach (Pocket_path_item p in path.Trajectory)
