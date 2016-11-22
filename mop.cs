@@ -18,13 +18,14 @@ namespace Matmill
     class Toolpath
     {
         public readonly Pocket_path Trajectory;
-        public readonly double Depth;
         public readonly double Top;
+        public readonly double Bottom;
         public readonly bool Should_return_to_base;
-        public Toolpath(Pocket_path path, double depth, double top, bool return_to_base)
+        public Polyline Leadin;
+        public Toolpath(Pocket_path path, double bottom, double top, bool return_to_base)
         {
             this.Trajectory = path;
-            this.Depth = depth;
+            this.Bottom = bottom;
             this.Top = top;
             this.Should_return_to_base = return_to_base;
         }
@@ -139,7 +140,6 @@ namespace Matmill
         	set { this._cut_ordering = value; }
         }
 
-
         [CBKeyValue, Category("Cutting Depth"), DefaultValue(typeof(CBValue<double>), "Default"), Description("Final depth of the machining operation."), DisplayName("Target Depth")]
         public CBValue<double> TargetDepth
         {
@@ -237,7 +237,7 @@ namespace Matmill
             return this._CADFile != null && this._CADFile.DrawingUnits == Units.Inches;
         }
 
-        private List<Toolpath> gen_ordered_toolpath(List<Pocket_path> trajectories, double[] depths)
+        private List<Toolpath> gen_ordered_toolpath(List<Pocket_path> trajectories, double[] bottoms)
         {
             List<Toolpath> toolpaths = new List<Toolpath>();
 
@@ -251,27 +251,69 @@ namespace Matmill
                     // last depth level of each pocket should have no return to base, it's useless
                     // intermediate levels may have returns if not disabled by setting
                     int i;
-                    for (i = 0; i < depths.Length - 1; i++)
+                    for (i = 0; i < bottoms.Length - 1; i++)
                     {
-                        toolpaths.Add(new Toolpath(traj, depths[i], surface, _may_return_to_base));
-                        surface = depths[i];
+                        toolpaths.Add(new Toolpath(traj, bottoms[i], surface, _may_return_to_base));
+                        surface = bottoms[i];
                     }
-                    toolpaths.Add(new Toolpath(traj, depths[i], surface, false));
+                    toolpaths.Add(new Toolpath(traj, bottoms[i], surface, false));
                 }
             }
             else
             {
                 double surface = base.StockSurface.Cached;
 
-                foreach (double depth in depths)
+                foreach (double bot in bottoms)
                 {
                     foreach (Pocket_path traj in trajectories)
-                        toolpaths.Add(new Toolpath(traj, depth, surface, false));
-                    surface = depth;
+                        toolpaths.Add(new Toolpath(traj, bot, surface, false));
+                    surface = bot;
                 }
             }
 
             return toolpaths;
+        }
+
+        private Polyline gen_leadin(Toolpath path)
+        {
+            double bottom = path.Bottom;
+            double radius = 12;
+            double depth_per_loop = 1;
+            double top = path.Top;
+
+            Point3F center = path.Trajectory[0].Points[0].Point;
+
+            Polyline p = new Polyline();
+            p.Add(center.X, center.Y, top, 0);
+
+            double remain = top - path.Bottom;
+            double running_top = top;
+
+            while (remain > 0)
+            {
+                double depth = Math.Min(remain, depth_per_loop);
+                double bulge = Math.Tan(Math.PI / 2 / 4);
+
+                p.Add(center.X + radius,    center.Y,           running_top, bulge);
+                p.Add(center.X,             center.Y + radius,  running_top - depth * 1 / 4, bulge);
+                p.Add(center.X - radius,    center.Y,           running_top - depth * 2 / 4, bulge);
+                p.Add(center.X,             center.Y - radius,  running_top - depth * 3 / 4, bulge);
+
+                remain -= depth;
+                running_top -= depth;
+            }
+
+            p.Add(center.X + radius, center.Y, bottom, 0);
+
+            p.Add(center.X, center.Y, bottom, 0);
+
+            return p;
+        }
+
+        private void gen_leadins(List<Toolpath> toolpaths)
+        {
+            foreach (Toolpath tp in toolpaths)
+                tp.Leadin = gen_leadin(tp);
         }
 
         private Pocket_path gen_pocket(ShapeListItem shape)
@@ -332,7 +374,7 @@ namespace Matmill
             CamBamUI.MainUI.ObjectProperties.Refresh();
         }
 
-        private List<Surface> calc_visual_cut_widths(List<Pocket_path> trajectories, double depth)
+        private List<Surface> calc_visual_cut_widths(List<Pocket_path> trajectories, double bottom)
         {
             List<Surface> surfaces = new List<Surface>();
 
@@ -353,7 +395,7 @@ namespace Matmill
                     }
 
                     PolylineToMesh mesh = new PolylineToMesh(p);
-    				Matrix4x4F xm = Matrix4x4F.Translation(0.0, 0.0, depth - 0.001);
+    				Matrix4x4F xm = Matrix4x4F.Translation(0.0, 0.0, bottom - 0.001);
     				Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
     				surface.ApplyTransformation(xm);
     				surfaces.Add(surface);
@@ -377,7 +419,7 @@ namespace Matmill
                 if (! lastpt.IsUndefined)
                 {
                     Point3F to = path.Trajectory[0].FirstPoint;
-                    to = new Point3F(to.X, to.Y, path.Depth);
+                    to = new Point3F(to.X, to.Y, path.Bottom);
 
                     double dist = Point2F.Distance((Point2F)lastpt, (Point2F)to);
 
@@ -395,7 +437,7 @@ namespace Matmill
 
                 // NOTE: we're discarding last path item if return to base should be disabled for this segment
                 lastpt = path.Trajectory[path.Trajectory.Count - (path.Should_return_to_base ? 1 : 2)].LastPoint;
-                lastpt = new Point3F(lastpt.X, lastpt.Y, path.Depth);
+                lastpt = new Point3F(lastpt.X, lastpt.Y, path.Bottom);
             }
 
             return rapids;
@@ -458,9 +500,10 @@ namespace Matmill
                 if (_trajectories.Count == 0)
                     return;
 
-                double[] depths = get_z_layers();
-                _toolpaths = gen_ordered_toolpath(_trajectories, depths);
-                _visual_cut_widths = calc_visual_cut_widths(_trajectories, depths[depths.Length - 1]);  // for the last depth only
+                double[] bottoms = get_z_layers();
+                _toolpaths = gen_ordered_toolpath(_trajectories, bottoms);
+                gen_leadins(_toolpaths);
+                _visual_cut_widths = calc_visual_cut_widths(_trajectories, bottoms[bottoms.Length - 1]);  // for the last depth only
                 _visual_rapids = calc_visual_rapids(_toolpaths);
 
                 if (this.MachineOpStatus == MachineOpStatus.Unknown)
@@ -486,13 +529,13 @@ namespace Matmill
                 throw new Exception("no spiral lead-in in pocket path");
 
             // make sure there would be rapid if required
-            gcg.CheckPosition(path.Trajectory[0].Points[0].Point, path.Depth);
+            gcg.CheckPosition(path.Trajectory[0].Points[0].Point, path.Bottom);
 
             foreach (Pocket_path_item item in path.Trajectory)
             {
                 if (item.Item_type == Pocket_path_item_type.LEADIN_SPIRAL)
                 {
-                    gcg.AppendPolyLine(item, path.Depth);
+                    gcg.AppendPolyLine(item, path.Bottom);
                 }
                 else if (item.Item_type == Pocket_path_item_type.SEGMENT)
                 {
@@ -500,10 +543,10 @@ namespace Matmill
                     // looks like this low-level hack is the only way to include move with custom feedrate it cambam
                     // no retracts/rapids are needed, path is continuous
                     // emit arc after that. gcg should change feedrate to the cut feedrate internally
-                    Point3F pt = new Point3F(item.Points[0].Point.X, item.Points[0].Point.Y, path.Depth);
+                    Point3F pt = new Point3F(item.Points[0].Point.X, item.Points[0].Point.Y, path.Bottom);
                     gcg.ApplyGCodeOrigin(ref pt);
                     gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
-                    gcg.AppendPolyLine(item, path.Depth);
+                    gcg.AppendPolyLine(item, path.Bottom);
                 }
                 else if (item.Item_type == Pocket_path_item_type.BRANCH_ENTRY || item.Item_type == Pocket_path_item_type.RETURN_TO_BASE)
                 {
@@ -514,7 +557,7 @@ namespace Matmill
                     // no retracts/rapids are needed, path is continuous
                     for (int i = 0; i < item.Points.Count; i++)
                     {
-                        Point3F pt = new Point3F(item.Points[i].Point.X, item.Points[i].Point.Y, path.Depth);
+                        Point3F pt = new Point3F(item.Points[i].Point.X, item.Points[i].Point.Y, path.Bottom);
                         gcg.ApplyGCodeOrigin(ref pt);
                         gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
                     }
@@ -539,7 +582,7 @@ namespace Matmill
                         continue;
 
                     Matrix4x4F mx = new Matrix4x4F();
-                    mx.Translate(0.0, 0.0, path.Depth);
+                    mx.Translate(0.0, 0.0, path.Bottom);
                     if (base.Transform.Cached != null)
                         mx *= base.Transform.Cached;
 
@@ -560,32 +603,41 @@ namespace Matmill
             Pocket_path_item ppi = tp0.Trajectory[0];
             if (ppi.Points.Count == 0) return Point3F.Undefined;
             Point3F pt = ppi.Points[0].Point;
-            return new Point3F(pt.X, pt.Y, tp0.Depth);
+            return new Point3F(pt.X, pt.Y, tp0.Bottom);
         }
 
         private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, Toolpath path)
         {
+            if (path.Leadin != null)
+            {
+                Matrix4x4F mx = new Matrix4x4F();
+                if (base.Transform.Cached != null)
+                    mx *= base.Transform.Cached;
+
+                d3d.ModelTransform = mx;
+                d3d.LineWidth = 1F;
+                path.Leadin.Paint(d3d, arccolor, linecolor);
+            }
+
             foreach (Pocket_path_item p in path.Trajectory)
             {
                 if (p.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (!path.Should_return_to_base))
                     continue;
 
-                Matrix4x4F matrix4x4F = new Matrix4x4F();
-                matrix4x4F.Translate(0.0, 0.0, path.Depth);
+                Matrix4x4F mx = new Matrix4x4F();
+                mx.Translate(0.0, 0.0, path.Bottom);
                 if (base.Transform.Cached != null)
-                    matrix4x4F *= base.Transform.Cached;
+                    mx *= base.Transform.Cached;
 
-                d3d.ModelTransform = matrix4x4F;
+                d3d.ModelTransform = mx;
                 d3d.LineWidth = 1F;
                 p.Paint(d3d, arccolor, linecolor);
-                base.PaintDirectionVector(iv, p, d3d, matrix4x4F);
+                base.PaintDirectionVector(iv, p, d3d, mx);
             }
         }
 
         private void paint_cut_widths(Display3D d3d)
         {
-            double depth = _toolpaths[_toolpaths.Count - 1].Depth;
-
             d3d.LineColor = CamBamConfig.Defaults.CutWidthColor;
             d3d.LineStyle = LineStyle.Solid;
             d3d.LineWidth = 0F;
