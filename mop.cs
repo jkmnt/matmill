@@ -526,6 +526,32 @@ namespace Matmill
             }
         }
 
+
+        public override List<Polyline> GetOutlines()
+        {
+            List<Polyline> outlines = new List<Polyline>();
+
+            foreach (Toolpath path in _toolpaths)
+            {
+                foreach (Pocket_path_item p in path.Trajectory)
+                {
+                    if (p.Item_type != Pocket_path_item_type.SEGMENT && p.Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
+                        continue;
+
+                    Matrix4x4F mx = new Matrix4x4F();
+                    mx.Translate(0.0, 0.0, path.Depth);
+                    if (base.Transform.Cached != null)
+                        mx *= base.Transform.Cached;
+
+                    Polyline poly = (Polyline) p.Clone();
+                    poly.ApplyTransformation(mx);
+                    outlines.Add(poly);
+                }
+            }
+
+            return outlines;
+        }
+
         private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, Toolpath path)
         {
             foreach (Pocket_path_item p in path.Trajectory)
@@ -543,17 +569,6 @@ namespace Matmill
                 p.Paint(d3d, arccolor, linecolor);
                 base.PaintDirectionVector(iv, p, d3d, matrix4x4F);
             }
-        }
-
-        public override void PostProcess(MachineOpToGCode gcg)
-        {
-            gcg.DefaultStockHeight = base.StockSurface.Cached;
-
-            if (_trajectories.Count == 0)
-                return;
-
-            foreach(Toolpath path in _toolpaths)
-                emit_toolpath(gcg, path);
         }
 
         private void paint_cut_widths(Display3D d3d)
@@ -582,6 +597,17 @@ namespace Matmill
                 p.Paint(d3d);
 
             d3d.LineStyle = LineStyle.Solid;
+        }
+
+        public override void PostProcess(MachineOpToGCode gcg)
+        {
+            gcg.DefaultStockHeight = base.StockSurface.Cached;
+
+            if (_trajectories.Count == 0)
+                return;
+
+            foreach(Toolpath path in _toolpaths)
+                emit_toolpath(gcg, path);
         }
 
         public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
