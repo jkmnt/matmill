@@ -636,6 +636,8 @@ namespace Matmill
         {
             if (_toolpaths.Count == 0) return Point3F.Undefined;
             Toolpath tp0 = _toolpaths[0];
+            if (tp0.Leadin != null)
+                return tp0.Leadin.FirstPoint;
             if (tp0.Trajectory.Count == 0) return Point3F.Undefined;
             Pocket_path_item ppi = tp0.Trajectory[0];
             if (ppi.Points.Count == 0) return Point3F.Undefined;
