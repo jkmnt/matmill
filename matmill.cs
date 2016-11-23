@@ -16,7 +16,7 @@ namespace Matmill
         BRANCH_ENTRY = 0x02,
         CHORD = 0x04,
         SEGMENT_CHORD = 0x08,
-        LEADIN_SPIRAL = 0x10,
+        SPIRAL = 0x10,
         RETURN_TO_BASE = 0x20,
         DEBUG_MAT = 0x40,
     }
@@ -80,7 +80,7 @@ namespace Matmill
         private RotationDirection _dir = RotationDirection.CW;
         private Pocket_path_item_type _emit_options =    Pocket_path_item_type.BRANCH_ENTRY
                                                        | Pocket_path_item_type.CHORD
-                                                       | Pocket_path_item_type.LEADIN_SPIRAL
+                                                       | Pocket_path_item_type.SPIRAL
                                                        | Pocket_path_item_type.SEGMENT;
 
         public double Cutter_d                                    { set { _cutter_r = value / 2.0;}}
@@ -779,10 +779,10 @@ namespace Matmill
             Slice root_slice = traverse[0].Slices[0];
 
             // emit spiral toolpath for root
-            if (should_emit(Pocket_path_item_type.LEADIN_SPIRAL))
+            if (should_emit(Pocket_path_item_type.SPIRAL))
             {
                 Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _initial_dir);
-                path.Add(new Pocket_path_item(Pocket_path_item_type.LEADIN_SPIRAL, spiral));
+                path.Add(new Pocket_path_item(Pocket_path_item_type.SPIRAL, spiral));
             }
 
             for (int bidx = 0; bidx < traverse.Count; bidx++)

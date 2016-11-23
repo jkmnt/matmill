@@ -32,7 +32,7 @@ namespace Matmill
     }
 
     [Serializable]
-    public class Mop_matmill : MOPFromGeometry, IIcon
+    public class Mop_matmill : MOPFromGeometry, IIcon, ILeadMoves
     {
         [NonSerialized]
         private List<Pocket_path> _trajectories = new List<Pocket_path>();
@@ -53,6 +53,8 @@ namespace Matmill
         protected CBValue<double> _final_depth_increment;
         protected CBValue<double> _stepover;
         protected CBValue<double> _target_depth;
+		protected CBValue<LeadMoveInfo> _leadin;
+        protected CBValue<Matrix4x4F> _transform;
 
         // TODO: make it the same as cut feedrate
         protected double _chord_feedrate = 2000.0;
@@ -93,13 +95,29 @@ namespace Matmill
         	get { return "cam_trochopock0"; }
         }
 
-        //--- hidden base parameters non-relevant to this mop
+        //--- hidden base parameters
 
         [XmlIgnore, Browsable(false)]
         public new CBValue<OptimisationModes> OptimisationMode
         {
             get { return base.OptimisationMode; }
             set { }
+        }
+
+        [XmlIgnore, Browsable(false)]
+        public new CBValue<Matrix4x4F> Transform
+        {
+        	get { return this._transform; }
+        	set { }
+        }
+
+        //--- required but unused parameter
+
+        [XmlIgnore, Browsable(false)]
+        public CBValue<LeadMoveInfo> LeadOutMove
+        {
+            get { return new CBValue<LeadMoveInfo>(); }
+            set {  }
         }
 
         //--- visible parameters which may be styled
@@ -146,6 +164,15 @@ namespace Matmill
         	get { return this._target_depth; }
         	set { this._target_depth = value; }
         }
+
+        [Category("Lead In/Out"), DefaultValue(typeof(CBValue<LeadMoveInfo>), "Default"), Description("Defines the lead in move as the tool enters the stock."), DisplayName("Lead In Move")]
+        public CBValue<LeadMoveInfo> LeadInMove
+        {
+        	get { return this._leadin; }
+        	set { this._leadin = value; }
+        }
+
+
 
         //--- our own new parameters. No reason to make them CBValues, since they couldn't be styled anyway
 
@@ -271,49 +298,38 @@ namespace Matmill
                 }
             }
 
+            // now insert leadins
+            if (_leadin.Cached != null && _leadin.Cached.LeadInType != LeadInTypeOptions.None)
+            {
+                for (int i = 0; i < toolpaths.Count; i++)
+                    toolpaths[i].Leadin = gen_leadin(toolpaths[i], i > 0 ? toolpaths[i - 1] : null);
+            }
+
             return toolpaths;
         }
 
-        private Polyline gen_leadin(Toolpath path)
+        private Polyline gen_leadin(Toolpath path, Toolpath prev_path)
         {
-            double bottom = path.Bottom;
-            double radius = 12;
-            double depth_per_loop = 1;
-            double top = path.Top;
+            Pocket_path_item spiral = path.Trajectory[0];
 
-            Point3F center = path.Trajectory[0].Points[0].Point;
+            if (spiral.Item_type != Pocket_path_item_type.SPIRAL)
+                throw new Exception("no spiral lead-in in pocket path");
 
-            Polyline p = new Polyline();
-            p.Add(center.X, center.Y, top, 0);
+            LeadMoveInfo move = _leadin.Cached;
+            Polyline p = move.GetLeadInToolPath(spiral,
+                                       spiral.Direction,
+                                       Vector2F.Undefined,              // don't know that this for. leave undefined
+                                       base.PlungeFeedrate.Cached,
+                                       base.CutFeedrate.Cached,
+                                       base.StockSurface.Cached,
+                                       _depth_increment.Cached,
+                                       path.Bottom,
+                                       move.ValidSpiralAngle, path.Top - path.Bottom);
 
-            double remain = top - path.Bottom;
-            double running_top = top;
-
-            while (remain > 0)
-            {
-                double depth = Math.Min(remain, depth_per_loop);
-                double bulge = Math.Tan(Math.PI / 2 / 4);
-
-                p.Add(center.X + radius,    center.Y,           running_top, bulge);
-                p.Add(center.X,             center.Y + radius,  running_top - depth * 1 / 4, bulge);
-                p.Add(center.X - radius,    center.Y,           running_top - depth * 2 / 4, bulge);
-                p.Add(center.X,             center.Y - radius,  running_top - depth * 3 / 4, bulge);
-
-                remain -= depth;
-                running_top -= depth;
-            }
-
-            p.Add(center.X + radius, center.Y, bottom, 0);
-
-            p.Add(center.X, center.Y, bottom, 0);
-
+            if (prev_path != null && prev_path.Should_return_to_base)
+                p.InsertSegmentBefore(0, new PolylineItem(spiral.FirstPoint.X, spiral.FirstPoint.Y, p.FirstPoint.Z, 0));
+            p.ID = -1;  // mark the polyline as leadin
             return p;
-        }
-
-        private void gen_leadins(List<Toolpath> toolpaths)
-        {
-            foreach (Toolpath tp in toolpaths)
-                tp.Leadin = gen_leadin(tp);
         }
 
         private Pocket_path gen_pocket(ShapeListItem shape)
@@ -345,7 +361,7 @@ namespace Matmill
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
             gen.Segmented_slice_engagement_derating_k = _segmented_slice_derating;
 
-            Pocket_path_item_type to_emit =     Pocket_path_item_type.LEADIN_SPIRAL
+            Pocket_path_item_type to_emit =     Pocket_path_item_type.SPIRAL
                                               | Pocket_path_item_type.BRANCH_ENTRY
                                               | Pocket_path_item_type.SEGMENT
                                               | Pocket_path_item_type.RETURN_TO_BASE;
@@ -384,20 +400,19 @@ namespace Matmill
                 {
                     Polyline p = item;
 
-                    if (item.Item_type != Pocket_path_item_type.SEGMENT && item.Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
+                    if (item.Item_type != Pocket_path_item_type.SEGMENT && item.Item_type != Pocket_path_item_type.SPIRAL)
                         continue;
 
                     // TODO: maybe a single transform of surface will suffice ?
-                    if (base.Transform.Cached != null && ! base.Transform.Cached.IsIdentity())
+                    if (base.Transform.Cached != null && ! Transform.Cached.IsIdentity())
                     {
                         p = (Polyline) p.Clone();
-                        p.ApplyTransformation(base.Transform.Cached);
+                        p.ApplyTransformation(Transform.Cached);
                     }
 
                     PolylineToMesh mesh = new PolylineToMesh(p);
-    				Matrix4x4F xm = Matrix4x4F.Translation(0.0, 0.0, bottom - 0.001);
     				Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
-    				surface.ApplyTransformation(xm);
+    				surface.ApplyTransformation(Matrix4x4F.Translation(0.0, 0.0, bottom - 0.001));
     				surfaces.Add(surface);
                 }
             }
@@ -418,8 +433,12 @@ namespace Matmill
             {
                 if (! lastpt.IsUndefined)
                 {
-                    Point3F to = path.Trajectory[0].FirstPoint;
-                    to = new Point3F(to.X, to.Y, path.Bottom);
+                    Point3F to;
+
+                    if (path.Leadin != null)
+                        to = path.Leadin.FirstPoint;
+                    else
+                        to = new Point3F(path.Trajectory[0].FirstPoint.X, path.Trajectory[0].FirstPoint.Y, path.Bottom);
 
                     double dist = Point2F.Distance((Point2F)lastpt, (Point2F)to);
 
@@ -502,7 +521,6 @@ namespace Matmill
 
                 double[] bottoms = get_z_layers();
                 _toolpaths = gen_ordered_toolpath(_trajectories, bottoms);
-                gen_leadins(_toolpaths);
                 _visual_cut_widths = calc_visual_cut_widths(_trajectories, bottoms[bottoms.Length - 1]);  // for the last depth only
                 _visual_rapids = calc_visual_rapids(_toolpaths);
 
@@ -524,18 +542,37 @@ namespace Matmill
 
         private void emit_toolpath(MachineOpToGCode gcg, Toolpath path)
         {
-            // first item is the spiral lead-in by convention
-            if (path.Trajectory[0].Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
-                throw new Exception("no spiral lead-in in pocket path");
+            if (path.Leadin != null)
+            {
+                Polyline p = path.Leadin;
 
-            // make sure there would be rapid if required
-            gcg.CheckPosition(path.Trajectory[0].Points[0].Point, path.Bottom);
+                if (path.Bottom != 0)
+                {
+                    p = (Polyline)p.Clone();
+                    Matrix4x4F matrix4x4F = new Matrix4x4F();
+                    p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));
+                }
+                gcg.AppendPolyLine(p, double.NaN);
+            }
+
+            // first item is the spiral by convention
+            if (path.Trajectory[0].Item_type != Pocket_path_item_type.SPIRAL)
+                throw new Exception("no spiral in pocket path");
 
             foreach (Pocket_path_item item in path.Trajectory)
             {
-                if (item.Item_type == Pocket_path_item_type.LEADIN_SPIRAL)
+                Polyline p = item;
+
+                if (path.Bottom != 0)
                 {
-                    gcg.AppendPolyLine(item, path.Bottom);
+                    p = (Polyline)item.Clone();
+                    Matrix4x4F matrix4x4F = new Matrix4x4F();
+                    p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));
+                }
+
+                if (item.Item_type == Pocket_path_item_type.SPIRAL)
+                {
+                    gcg.AppendPolyLine(p, double.NaN);
                 }
                 else if (item.Item_type == Pocket_path_item_type.SEGMENT)
                 {
@@ -543,21 +580,21 @@ namespace Matmill
                     // looks like this low-level hack is the only way to include move with custom feedrate it cambam
                     // no retracts/rapids are needed, path is continuous
                     // emit arc after that. gcg should change feedrate to the cut feedrate internally
-                    Point3F pt = new Point3F(item.Points[0].Point.X, item.Points[0].Point.Y, path.Bottom);
+                    Point3F pt = p.FirstPoint;
                     gcg.ApplyGCodeOrigin(ref pt);
                     gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
-                    gcg.AppendPolyLine(item, path.Bottom);
+                    gcg.AppendPolyLine(p, double.NaN);
                 }
                 else if (item.Item_type == Pocket_path_item_type.BRANCH_ENTRY || item.Item_type == Pocket_path_item_type.RETURN_TO_BASE)
                 {
-                    if (item.Item_type == Pocket_path_item_type.RETURN_TO_BASE && !path.Should_return_to_base)
+                    if (item.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (! path.Should_return_to_base))
                         continue;
 
                     // emit move inside the pocket point-by-point to preserve custom feedrate, same hack
                     // no retracts/rapids are needed, path is continuous
-                    for (int i = 0; i < item.Points.Count; i++)
+                    for (int i = 0; i < p.Points.Count; i++)
                     {
-                        Point3F pt = new Point3F(item.Points[i].Point.X, item.Points[i].Point.Y, path.Bottom);
+                        Point3F pt = p.Points[i].Point;
                         gcg.ApplyGCodeOrigin(ref pt);
                         gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
                     }
@@ -578,13 +615,13 @@ namespace Matmill
             {
                 foreach (Pocket_path_item p in path.Trajectory)
                 {
-                    if (p.Item_type != Pocket_path_item_type.SEGMENT && p.Item_type != Pocket_path_item_type.LEADIN_SPIRAL)
+                    if (p.Item_type != Pocket_path_item_type.SEGMENT && p.Item_type != Pocket_path_item_type.SPIRAL)
                         continue;
 
                     Matrix4x4F mx = new Matrix4x4F();
                     mx.Translate(0.0, 0.0, path.Bottom);
-                    if (base.Transform.Cached != null)
-                        mx *= base.Transform.Cached;
+                    if (Transform.Cached != null)
+                        mx *= Transform.Cached;
 
                     Polyline poly = (Polyline) p.Clone();
                     poly.ApplyTransformation(mx);
@@ -608,15 +645,19 @@ namespace Matmill
 
         private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, Toolpath path)
         {
-            if (path.Leadin != null)
+            Polyline leadin = path.Leadin;
+
+            if (leadin != null)
             {
                 Matrix4x4F mx = new Matrix4x4F();
-                if (base.Transform.Cached != null)
-                    mx *= base.Transform.Cached;
+                mx.Translate(0.0, 0.0, path.Bottom);
+                if (Transform.Cached != null)
+                    mx *= Transform.Cached;
 
                 d3d.ModelTransform = mx;
                 d3d.LineWidth = 1F;
-                path.Leadin.Paint(d3d, arccolor, linecolor);
+                leadin.Paint(d3d, arccolor, linecolor);
+                base.PaintDirectionVector(iv, leadin, d3d, mx);
             }
 
             foreach (Pocket_path_item p in path.Trajectory)
@@ -626,8 +667,8 @@ namespace Matmill
 
                 Matrix4x4F mx = new Matrix4x4F();
                 mx.Translate(0.0, 0.0, path.Bottom);
-                if (base.Transform.Cached != null)
-                    mx *= base.Transform.Cached;
+                if (Transform.Cached != null)
+                    mx *= Transform.Cached;
 
                 d3d.ModelTransform = mx;
                 d3d.LineWidth = 1F;
@@ -706,6 +747,7 @@ namespace Matmill
             FinalDepthIncrement = src.FinalDepthIncrement;
             StepOver = src.StepOver;
             TargetDepth = src.TargetDepth;
+            LeadInMove = src.LeadInMove;
 
             Chord_feedrate = src.Chord_feedrate;
             Min_stepover = src.Min_stepover;
