@@ -109,7 +109,7 @@ namespace Matmill
             return (int)(_emit_options & mask) != 0;
         }
 
-        private List<Point2F> sample_curve(Polyline p, double step)
+        private List<Point2F> sample_curve_old(Polyline p, double step)
         {
             // divide curve evenly. There is a bug in CamBam's divide by step routine (duplicate points), while 'divide to n equal segments' should work ok.
             // execution speed may be worse, but who cares
@@ -119,6 +119,63 @@ namespace Matmill
             List<Point2F> points = new List<Point2F>();
             foreach (Point3F pt in PointListUtils.CreatePointlistFromPolyline(p, nsegs).Points)
                 points.Add((Point2F) pt);
+
+            return points;
+        }
+
+        private List<Point2F> sample_curve(Polyline p, double step)
+        {
+            // try to to sample curve segments by step
+            // also make sure to include all segments startpoints to represent sharp edges
+            List<Point2F> points = new List<Point2F>();
+
+            for (int sidx = 0; sidx < p.NumSegments; sidx++)
+            {
+                object seg = p.GetSegment(sidx);
+                if (seg is Line2F)
+                {
+                    Line2F line = (Line2F)seg;
+
+                    points.Add(line.p1);
+
+                    double len = line.Length();
+                    int npoints = (int) (len / step);
+
+                    if (npoints <= 0)
+                        continue;
+
+                    double dx = (line.p2.X - line.p1.X) / npoints;
+                    double dy = (line.p2.Y - line.p1.Y) / npoints;
+                    // exclude first and last points
+                    for (int i = 1; i < npoints - 1; i++)
+                    {
+                        double x = line.p1.X + i * dx;
+                        double y = line.p1.Y + i * dy;
+                        points.Add(new Point2F(x, y));
+                    }
+                }
+                else if (seg is Arc2F)
+                {
+                    Arc2F arc = (Arc2F)seg;
+                    points.Add(arc.P1);
+
+                    double len = arc.GetPerimeter();
+                    int npoints = (int)(len / step);
+
+                    if (npoints <= 0)
+                        continue;
+
+                    double start = arc.Start * Math.PI / 180.0 ;
+                    double da = arc.Sweep * Math.PI / (180.0  * npoints);
+                    // exclude first and last points
+                    for (int i = 1; i < npoints - 1; i++)
+                    {
+                        double x = arc.Center.X + arc.Radius * Math.Cos(start + da * i);
+                        double y = arc.Center.Y + arc.Radius * Math.Sin(start + da * i);
+                        points.Add(new Point2F(x, y));
+                    }
+                }
+            }
 
             return points;
         }
@@ -334,6 +391,15 @@ namespace Matmill
                         break;
                 }
 
+                if (lca == 0)
+                {
+                    ;   // one of the slices must be the root (no ancestry). it is already included in path
+                }
+                else
+                {
+                    lca -= 1;   // the first diverging slices in ancestries were detected, lca is the last same slice, so -1
+                }
+
                 // now lca contains the lca of branches
                 // collect path up from src to lca and down to dst
                 for (int i = src_ancestry.Count - 1; i > lca; i--)
@@ -349,7 +415,7 @@ namespace Matmill
                 {
                     Slice s = path[i];
                     if (may_shortcut(current, end, ready_slices))
-                        break;
+                       break;
 
                     current = s.Center;
                     p.Add(current);

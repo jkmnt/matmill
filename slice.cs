@@ -210,6 +210,7 @@ namespace Matmill
                 Arc2F arc = _segments[i];
                 _segments[i] = new Arc2F(arc.Center, arc.P2, arc.P1, arc.Direction == RotationDirection.CCW ? RotationDirection.CW : RotationDirection.CCW);
             }
+            _segments.Reverse();
         }
 
         public Slice(Slice prev_slice, Slice last_slice, Point2F center, double radius)
