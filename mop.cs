@@ -32,7 +32,7 @@ namespace Matmill
     }
 
     [Serializable]
-    public class Mop_matmill : MOPFromGeometry, IIcon, ILeadMoves
+    public class Mop_matmill : MOPFromGeometry, IIcon
     {
         [NonSerialized]
         private List<Pocket_path> _trajectories = new List<Pocket_path>();
@@ -55,9 +55,8 @@ namespace Matmill
         protected CBValue<double> _target_depth;
 		protected CBValue<LeadMoveInfo> _leadin;
         protected CBValue<Matrix4x4F> _transform;
-
-        // TODO: make it the same as cut feedrate
-        protected double _chord_feedrate = 2000.0;
+        protected double _chord_feedrate = 0;
+        protected double _spiral_feedrate = 0;
 
         protected double _min_stepover_percentage = 0.9;
         protected double _segmented_slice_derating = 0.5;
@@ -109,15 +108,6 @@ namespace Matmill
         {
         	get { return this._transform; }
         	set { }
-        }
-
-        //--- required but unused parameter
-
-        [XmlIgnore, Browsable(false)]
-        public CBValue<LeadMoveInfo> LeadOutMove
-        {
-            get { return new CBValue<LeadMoveInfo>(); }
-            set {  }
         }
 
         //--- visible parameters which may be styled
@@ -179,14 +169,27 @@ namespace Matmill
         [
             CBKeyValue,
             Category("Feedrates"),
-            DefaultValue(2000),
-            Description("Feedrate for the chords and movements inside the milled pocket"),
+            DefaultValue(0),
+            Description("The feed rate to use for the chords and movements inside the milled pocket.  If 0 use cutting feedrate."),
             DisplayName("Chord Feedrate")
         ]
         public double Chord_feedrate
         {
             get	{ return _chord_feedrate; }
             set { _chord_feedrate = value; }
+        }
+
+        [
+            CBKeyValue,
+            Category("Feedrates"),
+            DefaultValue(0),
+            Description("The feed rate to use for the spiral opening the pocket. If 0 use cutting feedrate."),
+            DisplayName("Spiral Feedrate")
+        ]
+        public double Spiral_feedrate
+        {
+            get	{ return _spiral_feedrate; }
+            set { _spiral_feedrate = value; }
         }
 
         [
@@ -313,7 +316,7 @@ namespace Matmill
             Pocket_path_item spiral = path.Trajectory[0];
 
             if (spiral.Item_type != Pocket_path_item_type.SPIRAL)
-                throw new Exception("no spiral lead-in in pocket path");
+                throw new Exception("no spiral in pocket path");
 
             LeadMoveInfo move = _leadin.Cached;
             Polyline p = move.GetLeadInToolPath(spiral,
@@ -328,7 +331,7 @@ namespace Matmill
 
             if (prev_path != null && prev_path.Should_return_to_base)
                 p.InsertSegmentBefore(0, new PolylineItem(spiral.FirstPoint.X, spiral.FirstPoint.Y, p.FirstPoint.Z, 0));
-            p.ID = -1;  // mark the polyline as leadin
+
             return p;
         }
 
@@ -364,6 +367,8 @@ namespace Matmill
             Pocket_path_item_type to_emit =     Pocket_path_item_type.SPIRAL
                                               | Pocket_path_item_type.BRANCH_ENTRY
                                               | Pocket_path_item_type.SEGMENT
+                                              | Pocket_path_item_type.CHORD
+                                              | Pocket_path_item_type.SEGMENT_CHORD
                                               | Pocket_path_item_type.RETURN_TO_BASE;
             gen.Emit_options = to_emit;
 
@@ -542,68 +547,57 @@ namespace Matmill
 
         private void emit_toolpath(MachineOpToGCode gcg, Toolpath path)
         {
-            if (path.Leadin != null)
-            {
-                Polyline p = path.Leadin;
-
-                if (path.Bottom != 0)
-                {
-                    p = (Polyline)p.Clone();
-                    Matrix4x4F matrix4x4F = new Matrix4x4F();
-                    p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));
-                }
-                gcg.AppendPolyLine(p, double.NaN);
-            }
-
             // first item is the spiral by convention
             if (path.Trajectory[0].Item_type != Pocket_path_item_type.SPIRAL)
                 throw new Exception("no spiral in pocket path");
 
+            CBValue<double> normal_feedrate = base.CutFeedrate;
+            CBValue<double> chord_feedrate = _chord_feedrate != 0 ? new CBValue<double>(_chord_feedrate) : base.CutFeedrate;
+            CBValue<double> spiral_feedrate = _spiral_feedrate != 0 ? new CBValue<double>(_spiral_feedrate) : base.CutFeedrate;
+            CBValue<double> leadin_feedrate = _leadin.Cached != null && _leadin.Cached.LeadInFeedrate != 0 ? new CBValue<double>(_leadin.Cached.LeadInFeedrate) : base.CutFeedrate;
+
+            if (path.Leadin != null)
+            {
+                base.CutFeedrate = leadin_feedrate;
+                Polyline p = (Polyline)path.Leadin.Clone();                
+                p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));
+                gcg.AppendPolyLine(p, double.NaN);
+            }
+
             foreach (Pocket_path_item item in path.Trajectory)
             {
-                Polyline p = item;
+                switch (item.Item_type)
+                {
+                case Pocket_path_item_type.SPIRAL:
+                    base.CutFeedrate = spiral_feedrate;
+                    break;
 
-                if (path.Bottom != 0)
-                {
-                    p = (Polyline)item.Clone();
-                    Matrix4x4F matrix4x4F = new Matrix4x4F();
-                    p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));
-                }
+                case Pocket_path_item_type.SEGMENT:
+                    base.CutFeedrate = normal_feedrate;
+                    break;
 
-                if (item.Item_type == Pocket_path_item_type.SPIRAL)
-                {
-                    gcg.AppendPolyLine(p, double.NaN);
-                }
-                else if (item.Item_type == Pocket_path_item_type.SEGMENT)
-                {
-                    // emit chordal segment to the start of polyline with the chord feedrate.
-                    // looks like this low-level hack is the only way to include move with custom feedrate it cambam
-                    // no retracts/rapids are needed, path is continuous
-                    // emit arc after that. gcg should change feedrate to the cut feedrate internally
-                    Point3F pt = p.FirstPoint;
-                    gcg.ApplyGCodeOrigin(ref pt);
-                    gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
-                    gcg.AppendPolyLine(p, double.NaN);
-                }
-                else if (item.Item_type == Pocket_path_item_type.BRANCH_ENTRY || item.Item_type == Pocket_path_item_type.RETURN_TO_BASE)
-                {
-                    if (item.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (! path.Should_return_to_base))
+                case Pocket_path_item_type.CHORD:
+                case Pocket_path_item_type.SEGMENT_CHORD:
+                case Pocket_path_item_type.BRANCH_ENTRY:
+                    base.CutFeedrate = chord_feedrate;
+                    break;
+
+                case Pocket_path_item_type.RETURN_TO_BASE:
+                    if (! path.Should_return_to_base)
                         continue;
+                    base.CutFeedrate = chord_feedrate;
+                    break;
 
-                    // emit move inside the pocket point-by-point to preserve custom feedrate, same hack
-                    // no retracts/rapids are needed, path is continuous
-                    for (int i = 0; i < p.Points.Count; i++)
-                    {
-                        Point3F pt = p.Points[i].Point;
-                        gcg.ApplyGCodeOrigin(ref pt);
-                        gcg.AppendMove("g1", pt.X, pt.Y, pt.Z, _chord_feedrate);
-                    }
-                }
-                else
-                {
+                default:
                     throw new Exception("unknown item type in pocket trajectory");
                 }
+
+                Polyline p = (Polyline)item.Clone();
+                p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));                
+                gcg.AppendPolyLine(p, double.NaN);
             }
+
+            base.CutFeedrate = normal_feedrate;
         }
 
 
@@ -667,6 +661,10 @@ namespace Matmill
                 if (p.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (!path.Should_return_to_base))
                     continue;
 
+                // do not paint chords to reduce clutter 
+                if (p.Item_type == Pocket_path_item_type.CHORD || p.Item_type == Pocket_path_item_type.SEGMENT_CHORD)
+                    continue;
+
                 Matrix4x4F mx = new Matrix4x4F();
                 mx.Translate(0.0, 0.0, path.Bottom);
                 if (Transform.Cached != null)
@@ -712,8 +710,20 @@ namespace Matmill
             if (_trajectories.Count == 0)
                 return;
 
-            foreach(Toolpath path in _toolpaths)
-                emit_toolpath(gcg, path);
+            CBValue<double> original_feedrate = base.CutFeedrate;
+
+            // NOTE: toolpaths are emit in a hacky way to allow variable feedrate.
+            // CutFeedrate base setting is patched before posting each toolpath item,
+            // and should be restored in the end
+            try
+            {
+                foreach(Toolpath path in _toolpaths)
+                    emit_toolpath(gcg, path);
+            }
+            finally
+            {
+                base.CutFeedrate = original_feedrate;
+            }
         }
 
         public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
@@ -752,6 +762,7 @@ namespace Matmill
             LeadInMove = src.LeadInMove;
 
             Chord_feedrate = src.Chord_feedrate;
+            Spiral_feedrate = src.Spiral_feedrate;
             Min_stepover = src.Min_stepover;
             Segmented_slice_derating = src.Segmented_slice_derating;
             May_return_to_base = src.May_return_to_base;
@@ -764,7 +775,5 @@ namespace Matmill
         public Mop_matmill(CADFile CADFile, ICollection<Entity> plist) : base(CADFile, plist)
         {
         }
-
     }
-
 }
