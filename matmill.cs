@@ -301,7 +301,7 @@ namespace Matmill
             List<Slice> candidates = branch.Get_upstream_roadblocks();
             foreach (Slice candidate in candidates)
             {
-                Slice s = new Slice(candidate, last_slice, pt, radius);
+                Slice s = new Slice(candidate, last_slice, pt, radius, _cutter_r);
                 if (s.Max_engagement == 0)  // no intersections
                 {
                     if (s.Dist > 0)        // circles are too far away, ignore
@@ -496,7 +496,7 @@ namespace Matmill
                     }
                     else
                     {
-                        Slice s = new Slice(prev_slice, last_slice, pt, radius);
+                        Slice s = new Slice(prev_slice, last_slice, pt, radius, _cutter_r);
 
                         if (s.Max_engagement == 0)  // no intersections, two possible cases
                         {
