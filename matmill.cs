@@ -301,7 +301,7 @@ namespace Matmill
             List<Slice> candidates = branch.Get_upstream_roadblocks();
             foreach (Slice candidate in candidates)
             {
-                Slice s = new Slice(candidate, last_slice, pt, radius, _cutter_r);
+                Slice s = new Slice(candidate, pt, radius, _dir, _cutter_r, last_slice);
                 if (s.Max_engagement == 0)  // no intersections
                 {
                     if (s.Dist > 0)        // circles are too far away, ignore
@@ -311,7 +311,7 @@ namespace Matmill
                 }
                 else
                 {
-                    s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
+                    s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k, _cutter_r);
                 }
 
 
@@ -367,21 +367,21 @@ namespace Matmill
         {
             List<Slice> path = new List<Slice>();
 
-            Point2F current = src_pt.IsUndefined ? src.Segments[src.Segments.Count - 1].P2 : src_pt;
-            Point2F end = dst_pt.IsUndefined ? dst.Segments[0].P1 : dst_pt;
+            Point2F current = src_pt.IsUndefined ? src.End : src_pt;
+            Point2F end = dst_pt.IsUndefined ? dst.Start : dst_pt;
 
             Pocket_path_item p = new Pocket_path_item();
             p.Add(current);
 
-            if (dst.Prev != src)    // do not run search for a simple continuation
+            if (dst.Parent != src)    // do not run search for a simple continuation
             {
                 List<Slice> src_ancestry = new List<Slice>();
                 List<Slice> dst_ancestry = new List<Slice>();
 
-                for (Slice s = src.Prev; s != null; s = s.Prev)
+                for (Slice s = src.Parent; s != null; s = s.Parent)
                     src_ancestry.Insert(0, s);
 
-                for (Slice s = dst.Prev; s != null; s = s.Prev)
+                for (Slice s = dst.Parent; s != null; s = s.Parent)
                     dst_ancestry.Insert(0, s);
 
                 int lca;
@@ -431,23 +431,9 @@ namespace Matmill
             return switch_branch(dst, src, ready_slices, Point2F.Undefined, Point2F.Undefined);
         }
 
-        // optionally flip slice if any direction is allowed and flipping will reduce travel time
-        private void adjust_slice_dir(Slice slice, Slice last_slice)
-        {
-            if (_dir != RotationDirection.Unknown) return;
-            if (last_slice == null) return;
-
-            Point2F end = last_slice.Segments[last_slice.Segments.Count - 1].P2;
-            Point2F p1 = slice.Segments[0].P1;
-            Point2F p2 = slice.Segments[slice.Segments.Count - 1].P2;
-
-            if (end.DistanceTo(p2) < end.DistanceTo(p1))
-                slice.Flip_dir();
-        }
-
         private void roll(Branch branch, T4 ready_slices, ref Slice last_slice)
         {
-            Slice prev_slice = null;
+            Slice parent_slice = null;
 
             if (branch.Curve.Points.Count == 0)
                 throw new Exception("branch with the empty curve");
@@ -459,8 +445,8 @@ namespace Matmill
             {
                 // non-initial slice
                 //prev_slice = find_prev_slice(branch, last_slice, start_pt, start_radius, ready_slices);
-                prev_slice = find_nearest_slice(branch, start_pt);
-                if (prev_slice == null)
+                parent_slice = find_nearest_slice(branch, start_pt);
+                if (parent_slice == null)
                 {
                     Host.warn("failed to attach branch");
                     return;
@@ -471,7 +457,7 @@ namespace Matmill
                 Slice s = new Slice(start_pt, start_radius, _initial_dir);
                 branch.Slices.Add(s);
                 insert_in_t4(ready_slices, s);
-                prev_slice = s;
+                parent_slice = s;
                 last_slice = s;
             }
 
@@ -496,7 +482,7 @@ namespace Matmill
                     }
                     else
                     {
-                        Slice s = new Slice(prev_slice, last_slice, pt, radius, _cutter_r);
+                        Slice s = new Slice(parent_slice, pt, radius, _dir, _cutter_r, last_slice);
 
                         if (s.Max_engagement == 0)  // no intersections, two possible cases
                         {
@@ -509,7 +495,7 @@ namespace Matmill
                         {
                             // XXX: is this candidate is better than the last ?
                             candidate = s;
-                            candidate.Refine(find_colliding_slices(candidate, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k);
+                            candidate.Refine(find_colliding_slices(candidate, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k, _cutter_r);
 
                             if (candidate.Max_engagement > _max_engagement)
                             {
@@ -549,8 +535,6 @@ namespace Matmill
                 // discard slice if outside the specified min engagement
                 if (candidate.Max_engagement < _min_engagement) return;
 
-                adjust_slice_dir(candidate, last_slice);
-
                 // generate branch entry after finding the first valid slice (before populating ready slices)
                 if (branch.Slices.Count == 0 && last_slice != null)
                 {
@@ -560,7 +544,7 @@ namespace Matmill
 
                 branch.Slices.Add(candidate);
                 insert_in_t4(ready_slices, candidate);
-                prev_slice = candidate;
+                parent_slice = candidate;
                 last_slice = candidate;
             }
         }
@@ -847,7 +831,7 @@ namespace Matmill
             // emit spiral toolpath for root
             if (should_emit(Pocket_path_item_type.SPIRAL))
             {
-                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Segments[0].P1, _max_engagement, _initial_dir);
+                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Start, _max_engagement, _initial_dir);
                 path.Add(new Pocket_path_item(Pocket_path_item_type.SPIRAL, spiral));
             }
 
@@ -875,8 +859,8 @@ namespace Matmill
                     if (should_emit(Pocket_path_item_type.CHORD) && sidx > 0)
                     {
                         Pocket_path_item chord = new Pocket_path_item(Pocket_path_item_type.CHORD);
-                        chord.Add(last_slice.Segments[last_slice.Segments.Count - 1].P2);
-                        chord.Add(s.Segments[0].P1);
+                        chord.Add(last_slice.End);
+                        chord.Add(s.Start);
                         path.Add(chord);
                     }
 

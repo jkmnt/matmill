@@ -122,7 +122,7 @@ namespace Matmill
 
         //--- visible parameters which may be styled
 
-        [CBKeyValue, Category("Step Over"), DefaultValue(typeof(CBValue<double>), "Default"), Description("The cut is increased by this amount each step, expressed as a decimal (0-1.0) of the cutter width."), DisplayName("Step Over")]
+        [CBKeyValue, Category("Step Over"), DefaultValue(typeof(CBValue<double>), "Default"), Description("The cut is increased by this amount each step, expressed as a decimal (0-1.0) of the cutter width."), DisplayName("StepOver")]
         public CBValue<double> StepOver
         {
         	get { return this._stepover; }
