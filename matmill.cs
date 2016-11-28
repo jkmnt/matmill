@@ -199,14 +199,14 @@ namespace Matmill
         {
             List<Point2F> plist = new List<Point2F>();
 
-            plist.AddRange(sample_curve(_outline, _cutter_r / 10));
+            plist.AddRange(sample_curve_old(_outline, _cutter_r / 10));
             foreach (Polyline p in _islands)
-                plist.AddRange(sample_curve(p, _cutter_r / 10));
+                plist.AddRange(sample_curve_old(p, _cutter_r / 10));
 
             Host.log("got {0} points", plist.Count);
 
-            double[] xs = new double[plist.Count];
-            double[] ys = new double[plist.Count];
+            double[] xs = new double[plist.Count + 1];
+            double[] ys = new double[plist.Count + 1];
 
             double min_x = double.MaxValue;
             double max_x = double.MinValue;
@@ -218,11 +218,13 @@ namespace Matmill
             // Looks like its overly sensitive to the first processed points, their count and location. If first stages
             // go ok, then everything comes nice. Beeing a Steven Fortune's algorithm, it process points by a moving sweep line.
             // Looks like the line is moving from the bottom to the top, thus sensitive points are the most bottom ones.
-            // We try to cheat and move one of the most bottom points (there may be a lot, e.g. for rectange) a little
-            // lower. Then generator initially will see just one point, do a right magic and continue with a sane result :-)
-            // Let's always move a leftmost bottom point to be distinct.
+            // We try to cheat and add one more point so it would be the single most bottom point.
+            // Then generator initially will see just one point, do a right magic and continue with a sane result :-)
+            // We place this initial point under the lefmost bottom point at the sufficient distance,
+            // then these two points will form a separate Voronoi cite not influencing the remaining partition.
+            // Sufficient distance is defined as region width / 2 for now.
 
-            int hackpoint_idx = 0;
+            int lb_idx = 0;
 
             for (int i = 0; i < plist.Count; i++)
             {
@@ -237,21 +239,23 @@ namespace Matmill
                     if (ys[i] < min_y)
                     {
                         min_y = ys[i];
-                        hackpoint_idx = i;  // stricly less, it's a new hackpoint for sure
+                        lb_idx = i;  // stricly less, it's a new leftmost bottom for sure
                     }
                     else
                     {
-                        if (xs[i] < xs[hackpoint_idx])  // it's a new hackpoint if more lefty
-                            hackpoint_idx = i;
+                        if (xs[i] < xs[lb_idx])  // it's a new leftmost bottom if more lefty
+                            lb_idx = i;
                     }
                 }
             }
 
-            ys[hackpoint_idx] -= _general_tolerance;
+            double width = max_x - min_x;
+            xs[plist.Count] = xs[lb_idx];
+            ys[plist.Count] = ys[lb_idx] - width / 2;
 
             min_x -= VORONOI_MARGIN;
             max_x += VORONOI_MARGIN;
-            min_y -= VORONOI_MARGIN;
+            min_y -= VORONOI_MARGIN + width / 2;
             max_y += VORONOI_MARGIN;
 
             List<GraphEdge> edges = new Voronoi(_general_tolerance).generateVoronoi(xs, ys, min_x, max_x, min_y, max_y);
