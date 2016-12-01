@@ -11,6 +11,7 @@ using CamBam.CAM;
 using CamBam.Geom;
 using CamBam.UI;
 using CamBam.Values;
+using CamBam.Util;
 
 namespace Matmill
 {
@@ -467,6 +468,92 @@ namespace Matmill
             return rapids;
 		}
 
+        private void print_toolpath_stats(List<Toolpath> toolpaths, List<Polyline> rapids)
+        {
+            double leadins_len = 0;
+            double spirals_len = 0;
+            double slices_len = 0;
+            double moves_len = 0;
+            double rapids_len = 0;
+
+            // collect cut lengths
+            foreach (Toolpath path in toolpaths)
+            {
+                if (path.Leadin != null)
+                    leadins_len += path.Leadin.GetPerimeter();
+
+                foreach (Pocket_path_item item in path.Trajectory)
+                {
+                    double len = item.GetPerimeter();
+
+                    switch (item.Item_type)
+                    {
+                    case Pocket_path_item_type.SPIRAL:
+                        spirals_len += len;
+                        break;
+
+                    case Pocket_path_item_type.SEGMENT:
+                        slices_len += len;
+                        break;
+
+                    case Pocket_path_item_type.CHORD:
+                    case Pocket_path_item_type.BRANCH_ENTRY:
+                    case Pocket_path_item_type.SEGMENT_CHORD:
+                        moves_len += len;
+                        break;
+
+                    case Pocket_path_item_type.RETURN_TO_BASE:
+                        if (! path.Should_return_to_base)
+                            continue;
+                        moves_len += len;
+                        break;
+                    }
+                }
+            }
+
+            // collect rapids lengths
+            foreach (Polyline p in rapids)
+            {
+                rapids_len += p.GetPerimeter();
+            }
+
+            double cut_len = leadins_len + spirals_len + slices_len + moves_len;
+
+            Host.log(2, TextTranslation.Translate("Toolpath distance '{0}' : {1} + rapids : {2} = total : {3}"),
+                                                  base.Name,
+                                                  cut_len,
+                                                  rapids_len,
+                                                  cut_len + rapids_len);
+
+            // calculate feedrates
+            double normal_feedrate = base.CutFeedrate.Cached;
+            if (normal_feedrate <= 0)
+                return;
+
+            double chord_feedrate = _chord_feedrate != 0 ? _chord_feedrate : normal_feedrate;
+            double spiral_feedrate = _spiral_feedrate != 0 ? _spiral_feedrate : normal_feedrate;
+            double leadin_feedrate = _leadin.Cached != null && _leadin.Cached.LeadInFeedrate != 0 ? _leadin.Cached.LeadInFeedrate : normal_feedrate;
+            double rapid_feedrate = 600;    // something big
+
+            double cut_time = 0;
+            cut_time += leadins_len / leadin_feedrate;
+            cut_time += spirals_len / spiral_feedrate;
+            cut_time += slices_len / normal_feedrate;
+            cut_time += moves_len / chord_feedrate;
+
+            double rapid_time = rapids_len / rapid_feedrate;
+
+            TimeSpan cut_dur = new TimeSpan(0, 0, (int)(cut_time * 60.0));
+            TimeSpan rapids_dur = new TimeSpan(0, 0, (int)(rapid_time * 60.0));
+
+
+            Host.log(2, TextTranslation.Translate("Estimated Toolpath '{0}' duration : {1} + rapids : {2} = total : {3}"),
+                                                  base.Name,
+                                                  cut_dur,
+                                                  rapids_dur,
+                                                  cut_dur + rapids_dur);
+        }
+
 		protected override void _GenerateToolpathsWorker()
 		{
 			try
@@ -529,6 +616,8 @@ namespace Matmill
                 _visual_cut_widths = calc_visual_cut_widths(_trajectories, bottoms[bottoms.Length - 1]);  // for the last depth only
                 _visual_rapids = calc_visual_rapids(_toolpaths);
 
+                print_toolpath_stats(_toolpaths, _visual_rapids);
+
                 if (this.MachineOpStatus == MachineOpStatus.Unknown)
                 {
                     this.MachineOpStatus = MachineOpStatus.OK;
@@ -559,7 +648,7 @@ namespace Matmill
             if (path.Leadin != null)
             {
                 base.CutFeedrate = leadin_feedrate;
-                Polyline p = (Polyline)path.Leadin.Clone();                
+                Polyline p = (Polyline)path.Leadin.Clone();
                 p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));
                 gcg.AppendPolyLine(p, double.NaN);
             }
@@ -593,7 +682,7 @@ namespace Matmill
                 }
 
                 Polyline p = (Polyline)item.Clone();
-                p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));                
+                p.ApplyTransformation(Matrix4x4F.Translation(0, 0, path.Bottom));
                 gcg.AppendPolyLine(p, double.NaN);
             }
 
@@ -661,7 +750,7 @@ namespace Matmill
                 if (p.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (!path.Should_return_to_base))
                     continue;
 
-                // do not paint chords to reduce clutter 
+                // do not paint chords to reduce clutter
                 if (p.Item_type == Pocket_path_item_type.CHORD || p.Item_type == Pocket_path_item_type.SEGMENT_CHORD)
                     continue;
 

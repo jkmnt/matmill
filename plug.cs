@@ -13,6 +13,10 @@ namespace Matmill
 {
     class Host
     {
+        static public void log(int level, string s, params object[] args)
+        {
+            ThisApplication.AddLogMessage(level, s, args);
+        }
         static public void log(string s, params object[] args)
         {
             ThisApplication.AddLogMessage(4, s, args);
