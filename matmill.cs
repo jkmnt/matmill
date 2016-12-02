@@ -15,10 +15,11 @@ namespace Matmill
         SEGMENT = 0x01,
         BRANCH_ENTRY = 0x02,
         CHORD = 0x04,
-        SEGMENT_CHORD = 0x08,
-        SPIRAL = 0x10,
-        RETURN_TO_BASE = 0x20,
-        DEBUG_MAT = 0x40,
+        SMOOTH_ARC = 0x08,
+        SEGMENT_CHORD = 0x10,
+        SPIRAL = 0x20,
+        RETURN_TO_BASE = 0x40,
+        DEBUG_MAT = 0x80,
     }
 
     class Pocket_path : List<Pocket_path_item> { }
@@ -824,6 +825,82 @@ namespace Matmill
             return may_shortcut(a, b, colliders);
         }
 
+        private Point2F lines_intersection(Line2F a, Line2F b)
+        {
+            double x1 = a.p1.X;
+            double y1 = a.p1.Y;
+            double x2 = a.p2.X;
+            double y2 = a.p2.Y;
+            double x3 = b.p1.X;
+            double y3 = b.p1.Y;
+            double x4 = b.p2.X;
+            double y4 = b.p2.Y;
+
+            double x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) /
+                       ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4));
+
+            double y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) /
+                       ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4));
+
+            return new Point2F(x, y);
+        }
+
+        private Point2F infinite_lines_intersection(Point2F start_a, Vector2F v_a, Point2F start_b, Vector2F v_b)
+        {
+            Line2F a = new Line2F(start_a.X, start_a.Y, start_a.X + v_a.X, start_a.Y + v_a.Y);
+            Line2F b = new Line2F(start_b.X, start_b.Y, start_b.X + v_b.X, start_b.Y + v_b.Y);
+
+            //return lines_intersection(a, b);
+            return Line2F.ProjectionIntersect(a, b);
+        }
+
+        // connect slices with the smooth curve start and end points.
+        // curve is: start point - arc - tangent line to end - end
+        // this way curve would be always smooth
+        // TODO: test if curve is always inside the prev_slice
+        private Pocket_path_item connect_with_smooth_arc(Slice slice, Slice prev_slice)
+        {
+            Pocket_path_item result;
+
+            Point2F start = prev_slice.End;
+            Point2F end = slice.Start;
+
+            // draw normals (pointing inside the slices) at points to be connected
+            Vector2F vn_start = new Vector2F(start, prev_slice.Center);
+            Vector2F vn_end = new Vector2F(end, slice.Center);
+
+            // draw tangent vectors
+            Vector2F vt_start = vn_start.Normal();
+            Vector2F vt_end = vn_end.Normal();
+
+            // draw midline vector between tangents
+            Vector2F vtu_start = vt_start.Unit();
+            Vector2F vtu_end = vt_end.Unit();
+            Vector2F v_mid = new Vector2F(vtu_start.X - vtu_end.X, vtu_start.Y - vtu_end.Y);
+
+            // point of intersection of tangent lines, origin of midline vector
+            // NOTE: will fail if lines are almost parallel. Fallback to chord segment in this case for now
+            Point2F mid_origin = infinite_lines_intersection(start, vt_start, end, vt_end);
+
+            if (mid_origin.IsUndefined)
+            {
+                result = new Pocket_path_item(Pocket_path_item_type.CHORD);
+                result.Add(start);
+                result.Add(end);
+                return result;
+            }
+
+            // point of intersection between midline and normal to the start (arc center)
+            Point2F arc_center_v = infinite_lines_intersection(mid_origin, v_mid, start, vn_start);
+            // point of intersection between tangent to the end and arc
+            Point2F arc_end = infinite_lines_intersection(end, vt_end, arc_center_v, vn_end);
+
+            result = new Pocket_path_item(Pocket_path_item_type.SMOOTH_ARC);
+            result.Add(new Arc2F(arc_center_v, start, arc_end, _dir), _general_tolerance);
+            result.Add(end);
+            return result;
+        }
+
         private Pocket_path generate_path(List<Branch> traverse, T4 ready_slices)
         {
             Slice last_slice = null;
@@ -860,12 +937,20 @@ namespace Matmill
                     Slice s = b.Slices[sidx];
 
                     // connect following branch slices with chords
-                    if (should_emit(Pocket_path_item_type.CHORD) && sidx > 0)
+                    if (sidx > 0)
                     {
-                        Pocket_path_item chord = new Pocket_path_item(Pocket_path_item_type.CHORD);
-                        chord.Add(last_slice.End);
-                        chord.Add(s.Start);
-                        path.Add(chord);
+                        if (should_emit(Pocket_path_item_type.CHORD))
+                        {
+                            Pocket_path_item chord = new Pocket_path_item(Pocket_path_item_type.CHORD);
+                            chord.Add(last_slice.End);
+                            chord.Add(s.Start);
+                            path.Add(chord);
+                        }
+                        else if (should_emit(Pocket_path_item_type.SMOOTH_ARC))
+                        {
+                            Pocket_path_item arc = connect_with_smooth_arc(s, last_slice);
+                            path.Add(arc);
+                        }
                     }
 
                     // emit segments
@@ -904,6 +989,12 @@ namespace Matmill
 
         public Pocket_path run()
         {
+            if (should_emit(Pocket_path_item_type.SMOOTH_ARC) && should_emit(Pocket_path_item_type.CHORD))
+                throw new Exception("smooth arcs and chords are mutually exclusive");
+
+            if (_dir == RotationDirection.Unknown && should_emit(Pocket_path_item_type.SMOOTH_ARC))
+                throw new Exception("smooth arcs are not allowed for the variable mill direction");
+
             List<Line2F> mat_lines = get_mat_segments();
 
             Host.log("building tree");

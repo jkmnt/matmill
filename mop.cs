@@ -368,7 +368,8 @@ namespace Matmill
             Pocket_path_item_type to_emit =     Pocket_path_item_type.SPIRAL
                                               | Pocket_path_item_type.BRANCH_ENTRY
                                               | Pocket_path_item_type.SEGMENT
-                                              | Pocket_path_item_type.CHORD
+                                              //| Pocket_path_item_type.CHORD
+                                              | Pocket_path_item_type.SMOOTH_ARC
                                               | Pocket_path_item_type.SEGMENT_CHORD
                                               | Pocket_path_item_type.RETURN_TO_BASE;
             gen.Emit_options = to_emit;
@@ -497,6 +498,7 @@ namespace Matmill
                         break;
 
                     case Pocket_path_item_type.CHORD:
+                    case Pocket_path_item_type.SMOOTH_ARC:
                     case Pocket_path_item_type.BRANCH_ENTRY:
                     case Pocket_path_item_type.SEGMENT_CHORD:
                         moves_len += len;
@@ -666,6 +668,7 @@ namespace Matmill
                     break;
 
                 case Pocket_path_item_type.CHORD:
+                case Pocket_path_item_type.SMOOTH_ARC:
                 case Pocket_path_item_type.SEGMENT_CHORD:
                 case Pocket_path_item_type.BRANCH_ENTRY:
                     base.CutFeedrate = chord_feedrate;
@@ -761,7 +764,11 @@ namespace Matmill
 
                 d3d.ModelTransform = mx;
                 d3d.LineWidth = 1F;
-                p.Paint(d3d, arccolor, linecolor);
+
+                if (p.Item_type == Pocket_path_item_type.SMOOTH_ARC)
+                    p.Paint(d3d, Color.Cyan, Color.DarkCyan);
+                else                
+                    p.Paint(d3d, arccolor, linecolor);
                 base.PaintDirectionVector(iv, p, d3d, mx);
             }
         }
