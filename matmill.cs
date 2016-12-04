@@ -15,7 +15,7 @@ namespace Matmill
         SEGMENT = 0x01,
         BRANCH_ENTRY = 0x02,
         CHORD = 0x04,
-        SMOOTH_ARC = 0x08,
+        SMOOTH_CHORD = 0x08,
         SEGMENT_CHORD = 0x10,
         SPIRAL = 0x20,
         RETURN_TO_BASE = 0x40,
@@ -23,6 +23,223 @@ namespace Matmill
     }
 
     class Pocket_path : List<Pocket_path_item> { }
+
+    internal struct Vector2d
+    {
+        public double X;
+        public double Y;
+
+        public double Mag
+        {
+            get { return Math.Sqrt(X * X + Y * Y); }
+        }
+
+        public Vector2d(double x, double y)
+        {
+            X = x;
+            Y = y;
+        }
+
+        public Vector2d(Point2F pt)
+        {
+            X = pt.X;
+            Y = pt.Y;
+        }
+
+        public Vector2d(Point2F start, Point2F end)
+        {
+            X = end.X - start.X;
+            Y = end.Y - start.Y;
+        }
+
+        public Vector2d(Vector2d v)
+        {
+            X = v.X;
+            Y = v.Y;
+        }
+
+        public Vector2d Normal()
+        {
+            return new Vector2d(-Y, X);
+        }
+
+        public Vector2d Inverse()
+        {
+            return new Vector2d(-X, -Y);
+        }
+
+        public Vector2d Unit()
+        {
+            double mag = Mag;
+            return new Vector2d(X / mag, Y / mag);
+        }
+
+        public double Det(Vector2d b)
+        {
+            return X * b.Y - Y * b.X;
+        }
+
+        public static explicit operator Point2F (Vector2d v)
+        {
+            return new Point2F(v.X, v.Y);
+        }
+
+        public static double operator * (Vector2d a, Vector2d b)
+        {
+            return a.X * b.X + a.Y * b.Y;
+        }
+
+        public static Vector2d operator * (Vector2d a, double d)
+        {
+            return new Vector2d(a.X * d, a.Y * d);
+        }
+
+        public static Vector2d operator * (double d, Vector2d a)
+        {
+            return a * d;
+        }
+
+        public static Vector2d operator + (Vector2d a, Vector2d b)
+        {
+            return new Vector2d(a.X + b.X, a.Y + b.Y);
+        }
+
+        public static Vector2d operator - (Vector2d a, Vector2d b)
+        {
+            return new Vector2d(a.X - b.X, a.Y - b.Y);
+        }
+    }
+
+    internal struct Cubic2F
+    {
+        public double ax;
+        public double ay;
+        public double bx;
+        public double by;
+        public double cx;
+        public double cy;
+        public double dx;
+        public double dy;
+
+        public Point2F Point(double t)
+        {
+            return new Point2F(ax * t * t * t + bx * t * t + cx * t + dx,
+                               ay * t * t * t + by * t * t + cy * t + dy);
+        }
+
+        public Cubic2F(Point2F p0, Point2F p1, Point2F p2, Point2F p3)
+        {
+            dx = p0.X;
+            cx = 3 * p1.X - 3 * p0.X;
+            bx = 3 * p2.X - 6 * p1.X + 3 * p0.X;
+            ax = p3.X - 3 * p2.X + 3 * p1.X - p0.X;
+
+            dy = p0.Y;
+            cy = 3 * p1.Y - 3 * p0.Y;
+            by = 3 * p2.Y - 6 * p1.Y + 3 * p0.Y;
+            ay = p3.Y - 3 * p2.Y + 3 * p1.Y - p0.Y;
+        }
+    }
+
+    internal struct Hermite2F
+    {
+        public Point2F p1;
+        public Point2F p2;
+        public Point2F t1;
+        public Point2F t2;
+
+        public Point2F Point(double t)
+        {
+            double h00 =  2 * t * t * t - 3 * t * t + 1;
+            double h10 = t * t * t - 2 * t * t + t;
+            double h01 = -2 * t * t * t + 3 * t * t;
+            double h11 =  t * t * t - t * t;
+
+            double x = h00 * p1.X + h10 * t1.X + h01 * p2.X + h11 * t2.X;
+            double y = h00 * p1.Y + h10 * t1.Y + h01 * p2.Y + h11 * t2.Y;
+
+            return new Point2F(x, y);
+        }
+
+        public Hermite2F(Point2F p1, Point2F t1, Point2F p2, Point2F t2)
+        {
+            this.p1 = p1;
+            this.p2 = p2;
+            this.t1 = t1;
+            this.t2 = t2;
+        }
+    }
+
+    internal struct Biarc2F
+    {
+        public Point2F p1;
+        public Point2F p2;
+        public Point2F pm;
+        public Point2F c1;
+        public Point2F c2;
+        public RotationDirection arc1_dir;
+        public RotationDirection arc2_dir;
+
+        /* Adapted from http://www.ryanjuckett.com/programming/biarc-interpolation
+        */
+
+        private static Point2F calc_pm(Point2F p1, Vector2d t1, Point2F p2, Vector2d t2)
+        {
+            Vector2d v = new Vector2d(p2 - p1);
+            Vector2d t = t1 + t2;
+            double v_dot_t = v * t;
+            double t1_dot_t2 = t1 * t2;
+
+            double d2;
+            double d2_denom = 2 * (1 - t1_dot_t2);
+
+            if (d2_denom == 0)  // equal tangents
+            {
+                d2_denom = 4.0 * (v * t2);
+
+                d2 = v * v / d2_denom;
+
+                if (d2_denom == 0)  // v perpendicular to tangents
+                    return p1 + (Point2F) (v * 0.5);
+            }
+            else    // normal case
+            {
+                double d2_num = -v_dot_t + Math.Sqrt( v_dot_t * v_dot_t + 2 * (1 - t1_dot_t2) * (v * v));
+                d2 = d2_num / d2_denom;
+            }
+
+            return (p1 + p2 + (Point2F) (d2 * (t1 - t2))) * 0.5;
+        }
+
+        private static Point2F calc_arc(Point2F p, Vector2d t, Point2F pm)
+        {
+            Vector2d n = t.Normal();
+
+            Vector2d pm_minus_p = new Vector2d(pm - p);
+            double c_denom = 2 * (n * pm_minus_p);
+            if (c_denom == 0)  // c1 is at infinity, replace arc with line
+                return Point2F.Undefined;
+
+            return p + (Point2F) ((pm_minus_p * pm_minus_p) / c_denom * n);
+        }
+
+        private static RotationDirection calc_dir(Point2F p, Point2F c, Vector2d t)
+        {
+            return new Vector2d(p - c) * t.Normal() > 0 ? RotationDirection.CW : RotationDirection.CCW;
+        }
+
+        public Biarc2F(Point2F p1, Vector2d t1, Point2F p2, Vector2d t2)
+        {
+            this.p1 = p1;
+            this.p2 = p2;
+            this.pm = calc_pm(p1, t1, p2, t2);
+            this.c1 = calc_arc(p1, t1, this.pm);
+            this.c2 = calc_arc(p2, t2, this.pm);
+
+            this.arc1_dir = this.c1.IsUndefined ? RotationDirection.Unknown : calc_dir(p1, this.c1, t1);
+            this.arc2_dir = this.c2.IsUndefined ? RotationDirection.Unknown : calc_dir(p2, this.c2, t2);
+        }
+    }
 
     class Pocket_path_item: Polyline
     {
@@ -57,6 +274,76 @@ namespace Matmill
         {
             foreach (Point2F pt in curve.Points)
                 this.Add(pt);
+        }
+
+        public void Add(Cubic2F spline, double tstep)
+        {
+            Polyline p = new Polyline();
+
+            double t = 0;
+            while (t < 1)
+            {
+                p.Add((Point3F) spline.Point(t));
+                t += tstep;
+            }
+            p.Add((Point3F)spline.Point(1.0));
+
+            p.RemoveDuplicatePoints(0.001);
+
+            p = p.ArcFit(0.001);
+
+            foreach (PolylineItem pi in p.Points)
+                this.Points.Add(pi);
+        }
+
+        public void Add(Hermite2F spline, double step)
+        {
+            // approximation
+            double nsteps = spline.p1.DistanceTo(spline.p2) / step;
+            nsteps = Math.Max(nsteps, 8);
+            double tstep = 1.0 / nsteps;
+
+            Polyline p = new Polyline();
+
+            double t = 0;
+            while (t < 1)
+            {
+                p.Add((Point3F) spline.Point(t));
+                t += tstep;
+            }
+            p.Add((Point3F)spline.Point(1.0));
+
+            //p.RemoveDuplicatePoints(step / 10);
+
+            p = p.ArcFit(step / 10);
+
+            foreach (PolylineItem pi in p.Points)
+                this.Points.Add(pi);
+        }
+
+        public void Add(Biarc2F biarc, double tolerance)
+        {
+            if (biarc.c1.IsUndefined)
+            {
+                Line2F line = new Line2F(biarc.p1, biarc.pm);
+                this.Add(line, tolerance);
+            }
+            else
+            {
+                Arc2F arc = new Arc2F(biarc.c1, biarc.p1, biarc.pm, biarc.arc1_dir);
+                this.Add(arc, tolerance);
+            }
+
+            if (biarc.c2.IsUndefined)
+            {
+                Line2F line = new Line2F(biarc.pm, biarc.p2);
+                this.Add(line, tolerance);
+            }
+            else
+            {
+                Arc2F arc = new Arc2F(biarc.c2, biarc.pm, biarc.p2, biarc.arc2_dir);
+                this.Add(arc, tolerance);
+            }
         }
     }
 
@@ -376,10 +663,18 @@ namespace Matmill
             Point2F end = dst_pt.IsUndefined ? dst.Start : dst_pt;
 
             Pocket_path_item p = new Pocket_path_item();
-            p.Add(current);
 
-            if (dst.Parent != src)    // do not run search for a simple continuation
+            if (dst.Parent == src)  // simple continuation
             {
+                //p.Add(current);
+                //p.Add(end);
+                p = connect_with_smooth_chord(dst, src);
+            }
+            else
+            {
+
+                p.Add(current);
+
                 List<Slice> src_ancestry = new List<Slice>();
                 List<Slice> dst_ancestry = new List<Slice>();
 
@@ -425,9 +720,10 @@ namespace Matmill
                     current = s.Center;
                     p.Add(current);
                 }
+
+                p.Add(end);
             }
 
-            p.Add(end);
             return p;
         }
 
@@ -854,50 +1150,32 @@ namespace Matmill
             return Line2F.ProjectionIntersect(a, b);
         }
 
-        // connect slices with the smooth curve start and end points.
-        // curve is: start point - arc - tangent line to end - end
-        // this way curve would be always smooth
-        // TODO: test if curve is always inside the prev_slice
-        private Pocket_path_item connect_with_smooth_arc(Slice slice, Slice prev_slice)
+        // connect slices with a cubic spline
+        // XXX: to be tested
+        private Pocket_path_item connect_with_smooth_chord(Slice slice, Slice prev_slice)
         {
-            Pocket_path_item result;
-
             Point2F start = prev_slice.End;
             Point2F end = slice.Start;
+            // unit normals to points
+            Vector2d vn_start = new Vector2d(prev_slice.Center, start).Unit();
+            Vector2d vn_end = new Vector2d(slice.Center, end).Unit();
+            // tangents to points
+            Vector2d vt_start;
+            Vector2d vt_end;
+            if (prev_slice.Segments[0].Direction == RotationDirection.CW)
+                vt_start = new Vector2d(vn_start.Y, -vn_start.X);
+            else
+                vt_start = new Vector2d(-vn_start.Y, vn_start.X);
 
-            // draw normals (pointing inside the slices) at points to be connected
-            Vector2F vn_start = new Vector2F(start, prev_slice.Center);
-            Vector2F vn_end = new Vector2F(end, slice.Center);
+            if (slice.Segments[0].Direction == RotationDirection.CW)
+                vt_end = new Vector2d(vn_end.Y, -vn_end.X);
+            else
+                vt_end = new Vector2d(-vn_end.Y, vn_end.X);
 
-            // draw tangent vectors
-            Vector2F vt_start = vn_start.Normal();
-            Vector2F vt_end = vn_end.Normal();
+            Biarc2F biarc = new Biarc2F(start, vt_start, end, vt_end);
 
-            // draw midline vector between tangents
-            Vector2F vtu_start = vt_start.Unit();
-            Vector2F vtu_end = vt_end.Unit();
-            Vector2F v_mid = new Vector2F(vtu_start.X - vtu_end.X, vtu_start.Y - vtu_end.Y);
-
-            // point of intersection of tangent lines, origin of midline vector
-            // NOTE: will fail if lines are almost parallel. Fallback to chord segment in this case for now
-            Point2F mid_origin = infinite_lines_intersection(start, vt_start, end, vt_end);
-
-            if (mid_origin.IsUndefined)
-            {
-                result = new Pocket_path_item(Pocket_path_item_type.CHORD);
-                result.Add(start);
-                result.Add(end);
-                return result;
-            }
-
-            // point of intersection between midline and normal to the start (arc center)
-            Point2F arc_center_v = infinite_lines_intersection(mid_origin, v_mid, start, vn_start);
-            // point of intersection between tangent to the end and arc
-            Point2F arc_end = infinite_lines_intersection(end, vt_end, arc_center_v, vn_end);
-
-            result = new Pocket_path_item(Pocket_path_item_type.SMOOTH_ARC);
-            result.Add(new Arc2F(arc_center_v, start, arc_end, _dir), _general_tolerance);
-            result.Add(end);
+            Pocket_path_item result = new Pocket_path_item(Pocket_path_item_type.SMOOTH_CHORD);
+            result.Add(biarc, _general_tolerance);
             return result;
         }
 
@@ -946,9 +1224,9 @@ namespace Matmill
                             chord.Add(s.Start);
                             path.Add(chord);
                         }
-                        else if (should_emit(Pocket_path_item_type.SMOOTH_ARC))
+                        else if (should_emit(Pocket_path_item_type.SMOOTH_CHORD))
                         {
-                            Pocket_path_item arc = connect_with_smooth_arc(s, last_slice);
+                            Pocket_path_item arc = connect_with_smooth_chord(s, last_slice);
                             path.Add(arc);
                         }
                     }
@@ -989,11 +1267,11 @@ namespace Matmill
 
         public Pocket_path run()
         {
-            if (should_emit(Pocket_path_item_type.SMOOTH_ARC) && should_emit(Pocket_path_item_type.CHORD))
-                throw new Exception("smooth arcs and chords are mutually exclusive");
+            if (should_emit(Pocket_path_item_type.SMOOTH_CHORD) && should_emit(Pocket_path_item_type.CHORD))
+                throw new Exception("smooth chords and straight chords are mutually exclusive");
 
-            if (_dir == RotationDirection.Unknown && should_emit(Pocket_path_item_type.SMOOTH_ARC))
-                throw new Exception("smooth arcs are not allowed for the variable mill direction");
+            if (_dir == RotationDirection.Unknown && should_emit(Pocket_path_item_type.SMOOTH_CHORD))
+                throw new Exception("smooth chords are not allowed for the variable mill direction");
 
             List<Line2F> mat_lines = get_mat_segments();
 
