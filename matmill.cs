@@ -555,8 +555,7 @@ namespace Matmill
             foreach (GraphEdge e in edges)
             {
                 Line2F seg = new Line2F(e.x1, e.y1, e.x2, e.y2);
-
-                if (seg.Length() < _general_tolerance) continue;    // extra small segment, discard
+                if (seg.Length() < double.Epsilon) continue;    // extra small segment, discard
                 if (! is_line_inside_region(seg, ANALIZE_INNER_INTERSECTIONS)) continue;
                 inner_segments.Add(seg);
             }
@@ -875,7 +874,10 @@ namespace Matmill
                 b.Curve.Add(pt);
                 attach_segments(b, pool);
 
-                me.Children.Add(b);
+                if (b.Deep_distance() > _general_tolerance) // attach only 'long enough'
+                    me.Children.Add(b);
+                else
+                    Host.log("skipping short branch");
             }
             // prefer a shortest branch
             me.Children.Sort((a, b) => a.Deep_distance().CompareTo(b.Deep_distance()));

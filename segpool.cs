@@ -94,19 +94,20 @@ namespace Matmill
 
                 foreach (Line2F seg in _pool[h[i]])
                 {
-                    if (processed.Contains(seg))
-                        continue;  // already got it
+                    if (processed.Contains(seg))                                            
+                        continue;  // already got it                    
 
-                    if (join_pt.DistanceTo(seg.p1) < _tolerance)
-                    {
+                    double d1 = join_pt.DistanceTo(seg.p1);
+                    double d2 = join_pt.DistanceTo(seg.p2);
+
+                    if (d1 > _tolerance && d2 > _tolerance)
+                        continue;                    
+
+                    if (d1 < d2)
                         followers.Add(seg.p2);
-                        processed.Add(seg);
-                    }
-                    else if (join_pt.DistanceTo(seg.p2) < _tolerance)
-                    {
-                        followers.Add(seg.p1);
-                        processed.Add(seg);
-                    }
+                    else
+                        followers.Add(seg.p1);                    
+                    processed.Add(seg);                    
                 }
             }
 
