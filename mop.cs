@@ -13,7 +13,9 @@ using CamBam.UI;
 using CamBam.Values;
 using CamBam.Util;
 
-namespace Matmill
+using Matmill;
+
+namespace Trochopock
 {
     // toolpath combines flat trajectory and depth
     class Toolpath
@@ -365,15 +367,7 @@ namespace Matmill
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
             gen.Segmented_slice_engagement_derating_k = _segmented_slice_derating;
 
-            Pocket_path_item_type to_emit =     Pocket_path_item_type.SPIRAL
-                                              | Pocket_path_item_type.BRANCH_ENTRY
-                                              | Pocket_path_item_type.SEGMENT
-                                              //| Pocket_path_item_type.CHORD
-                                              | Pocket_path_item_type.SMOOTH_CHORD
-                                              | Pocket_path_item_type.SEGMENT_CHORD
-                                              //| Pocket_path_item_type.DEBUG_MAT
-                                              | Pocket_path_item_type.RETURN_TO_BASE;
-            gen.Emit_options = to_emit;
+            gen.Should_smooth_chords = true;
 
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
             gen.Margin = base.RoughingClearance.Cached;
@@ -408,7 +402,7 @@ namespace Matmill
                 {
                     Polyline p = item;
 
-                    if (item.Item_type != Pocket_path_item_type.SEGMENT && item.Item_type != Pocket_path_item_type.SPIRAL)
+                    if (item.Item_type != Pocket_path_item_type.SLICE && item.Item_type != Pocket_path_item_type.SPIRAL)
                         continue;
 
                     // TODO: maybe a single transform of surface will suffice ?
@@ -494,14 +488,14 @@ namespace Matmill
                         spirals_len += len;
                         break;
 
-                    case Pocket_path_item_type.SEGMENT:
+                    case Pocket_path_item_type.SLICE:
                         slices_len += len;
                         break;
 
                     case Pocket_path_item_type.CHORD:
                     case Pocket_path_item_type.SMOOTH_CHORD:
                     case Pocket_path_item_type.BRANCH_ENTRY:
-                    case Pocket_path_item_type.SEGMENT_CHORD:
+                    case Pocket_path_item_type.SLICE_SHORTCUT:
                         moves_len += len;
                         break;
 
@@ -664,13 +658,13 @@ namespace Matmill
                     base.CutFeedrate = spiral_feedrate;
                     break;
 
-                case Pocket_path_item_type.SEGMENT:
+                case Pocket_path_item_type.SLICE:
                     base.CutFeedrate = normal_feedrate;
                     break;
 
                 case Pocket_path_item_type.CHORD:
                 case Pocket_path_item_type.SMOOTH_CHORD:
-                case Pocket_path_item_type.SEGMENT_CHORD:
+                case Pocket_path_item_type.SLICE_SHORTCUT:
                 case Pocket_path_item_type.BRANCH_ENTRY:
                     base.CutFeedrate = chord_feedrate;
                     break;
@@ -702,7 +696,7 @@ namespace Matmill
             {
                 foreach (Pocket_path_item p in path.Trajectory)
                 {
-                    if (p.Item_type != Pocket_path_item_type.SEGMENT && p.Item_type != Pocket_path_item_type.SPIRAL)
+                    if (p.Item_type != Pocket_path_item_type.SLICE && p.Item_type != Pocket_path_item_type.SPIRAL)
                         continue;
 
                     Matrix4x4F mx = new Matrix4x4F();
@@ -736,6 +730,9 @@ namespace Matmill
         {
             Polyline leadin = path.Leadin;
 
+            Color move_acolor = Color.FromArgb(255, arccolor);
+            Color move_linecolor = Color.FromArgb(255, linecolor);
+
             if (leadin != null)
             {
                 Matrix4x4F mx = new Matrix4x4F();
@@ -754,10 +751,6 @@ namespace Matmill
                 if (p.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (!path.Should_return_to_base))
                     continue;
 
-                // do not paint chords to reduce clutter
-                if (p.Item_type == Pocket_path_item_type.CHORD || p.Item_type == Pocket_path_item_type.SEGMENT_CHORD)
-                    continue;
-
                 Matrix4x4F mx = new Matrix4x4F();
                 mx.Translate(0.0, 0.0, path.Bottom);
                 if (Transform.Cached != null)
@@ -766,10 +759,11 @@ namespace Matmill
                 d3d.ModelTransform = mx;
                 d3d.LineWidth = 1F;
 
-                if (p.Item_type == Pocket_path_item_type.SMOOTH_CHORD)
-                    p.Paint(d3d, Color.Cyan, Color.DarkCyan);
+                if (p.Item_type == Pocket_path_item_type.SLICE || p.Item_type == Pocket_path_item_type.SPIRAL)
+                    p.Paint(d3d, arccolor, linecolor);                
                 else
-                    p.Paint(d3d, arccolor, linecolor);
+                    p.Paint(d3d, move_acolor, move_linecolor);
+
                 base.PaintDirectionVector(iv, p, d3d, mx);
             }
         }

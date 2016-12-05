@@ -7,11 +7,11 @@ using System.IO;
 using CamBam;
 using CamBam.UI;
 using CamBam.CAD;
-using CamBam.Geom;
+using Matmill;
 
-namespace Matmill
+namespace Trochopock
 {
-    class Host
+    static class Host
     {
         static public void log(int level, string s, params object[] args)
         {
@@ -31,10 +31,25 @@ namespace Matmill
         }
     }
 
-    public class Matmill_plugin
+    class Hostlogger : Matmill.ILogger
     {
-        const string plug_text_name = "Trochoidal Pocket";
+        public void log(string s, params object[] args)
+        {
+            Host.log(s, args);            
+        }
+        public void warn(string s, params object[] args)
+        {
+            Host.warn(s, args);                
+        }
+        public void err(string s, params object[] args)
+        {
+            Host.err(s, args);            
+        }
+    }
 
+    public static class Trochopock_plug
+    {
+        const string plug_text_name = "Trochoidal Pocket";                
 
         private static void mop_onclick(object sender, EventArgs ars)
         {
@@ -119,6 +134,8 @@ namespace Matmill
 
         public static void InitPlugin(CamBamUI ui)
         {
+            Matmill.Logger.attach_logger(new Hostlogger());
+
             ToolStripMenuItem menu_entry;
 
             menu_entry = new ToolStripMenuItem();
@@ -146,7 +163,7 @@ namespace Matmill
 			Mop_matmill o = new Mop_matmill();
 			XmlSerializer xmlSerializer = new XmlSerializer(typeof(Mop_matmill));
 			MemoryStream stream = new MemoryStream();
-			xmlSerializer.Serialize(stream, o);
+			xmlSerializer.Serialize(stream, o);            
         }
     }
 }

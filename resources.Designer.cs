@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace Matmill {
+namespace Trochopock {
     using System;
     
     
@@ -39,7 +39,7 @@ namespace Matmill {
         internal static global::System.Resources.ResourceManager ResourceManager {
             get {
                 if (object.ReferenceEquals(resourceMan, null)) {
-                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("Matmill.resources", typeof(resources).Assembly);
+                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("Trochopock.resources", typeof(resources).Assembly);
                     resourceMan = temp;
                 }
                 return resourceMan;

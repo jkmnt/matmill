@@ -5,15 +5,12 @@ using System.Collections.Generic;
 namespace Matmill
 {
     class Branch
-    {
-        public delegate void Visitor(Branch b);
-
+    {        
         public readonly Curve Curve = new Curve();
         public readonly Branch Parent = null;
         public readonly List<Branch> Children = new List<Branch>();
         public readonly List<Slice> Slices = new List<Slice>();
         public Pocket_path_item Entry = null;
-        public string Debug = "";
 
         public bool Is_leaf { get { return Children.Count == 0; } }
 
@@ -26,13 +23,6 @@ namespace Matmill
             return result;
         }
 
-        public void Df_visit(Visitor v)
-        {
-            v(this);
-            foreach (Branch b in Children)
-                b.Df_visit(v);
-        }
-
         public double Deep_distance()
         {
             double dist = Curve.Length;
@@ -40,16 +30,6 @@ namespace Matmill
                 dist += b.Deep_distance();
 
             return dist;
-        }
-
-        public List<Branch> Get_parents()
-        {
-            List<Branch> parents = new List<Branch>();
-            for (Branch p = Parent; p != null; p = p.Parent)
-            {
-                parents.Add(p);
-            }
-            return parents;
         }
 
         // Get all the slices blocking path (meet first) while traveling up the branch

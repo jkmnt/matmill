@@ -7,7 +7,7 @@
     <ProjectGuid>{26D59F35-CF38-4714-8036-5038537EA2BA}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>Matmill</RootNamespace>
+    <RootNamespace>Trochopock</RootNamespace>
     <AssemblyName>trochopock</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
@@ -73,6 +73,7 @@
   <ItemGroup>
     <Compile Include="branch.cs" />
     <Compile Include="curve.cs" />
+    <Compile Include="geom.cs" />
     <Compile Include="matmill.cs" />
     <Compile Include="mop.cs" />
     <Compile Include="plug.cs" />

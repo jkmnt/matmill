@@ -6,249 +6,67 @@ using CamBam.Geom;
 
 using Tree4;
 using Voronoi2;
+using Geom;
 
 namespace Matmill
 {
     enum Pocket_path_item_type
     {
-        UNDEFINED = 0x00,
-        SEGMENT = 0x01,
-        BRANCH_ENTRY = 0x02,
-        CHORD = 0x04,
-        SMOOTH_CHORD = 0x08,
-        SEGMENT_CHORD = 0x10,
-        SPIRAL = 0x20,
-        RETURN_TO_BASE = 0x40,
-        DEBUG_MAT = 0x80,
+        SLICE,
+        SPIRAL,
+        CHORD,
+        SMOOTH_CHORD,
+        BRANCH_ENTRY,
+        SLICE_SHORTCUT,
+        RETURN_TO_BASE,
+        DEBUG_MAT,
+    }
+
+    public interface ILogger
+    {
+        void log(string s, params object[] args);
+        void warn(string s, params object[] args);
+        void err(string s, params object[] args);
+    }
+
+    public class Dummy_logger : ILogger
+    {
+        public void log(string s, params object[] args) { }
+        public void warn(string s, params object[] args) { }
+        public void err(string s, params object[] args) { }
+    }
+
+    static class Logger
+    {
+        static ILogger handler = new Dummy_logger();
+
+        public static void log(string s, params object[] args)
+        {
+            handler.log(s, args);
+        }
+
+        public static void warn(string s, params object[] args)
+        {
+            handler.warn(s, args);
+        }
+
+        public static void err(string s, params object[] args)
+        {
+            handler.err(s, args);
+        }
+
+        public static void attach_logger(ILogger logger)
+        {
+            handler = logger;
+        }
+
     }
 
     class Pocket_path : List<Pocket_path_item> { }
 
-    internal struct Vector2d
-    {
-        public double X;
-        public double Y;
-
-        public double Mag
-        {
-            get { return Math.Sqrt(X * X + Y * Y); }
-        }
-
-        public Vector2d(double x, double y)
-        {
-            X = x;
-            Y = y;
-        }
-
-        public Vector2d(Point2F pt)
-        {
-            X = pt.X;
-            Y = pt.Y;
-        }
-
-        public Vector2d(Point2F start, Point2F end)
-        {
-            X = end.X - start.X;
-            Y = end.Y - start.Y;
-        }
-
-        public Vector2d(Vector2d v)
-        {
-            X = v.X;
-            Y = v.Y;
-        }
-
-        public Vector2d Normal()
-        {
-            return new Vector2d(-Y, X);
-        }
-
-        public Vector2d Inverse()
-        {
-            return new Vector2d(-X, -Y);
-        }
-
-        public Vector2d Unit()
-        {
-            double mag = Mag;
-            return new Vector2d(X / mag, Y / mag);
-        }
-
-        public double Det(Vector2d b)
-        {
-            return X * b.Y - Y * b.X;
-        }
-
-        public static explicit operator Point2F (Vector2d v)
-        {
-            return new Point2F(v.X, v.Y);
-        }
-
-        public static double operator * (Vector2d a, Vector2d b)
-        {
-            return a.X * b.X + a.Y * b.Y;
-        }
-
-        public static Vector2d operator * (Vector2d a, double d)
-        {
-            return new Vector2d(a.X * d, a.Y * d);
-        }
-
-        public static Vector2d operator * (double d, Vector2d a)
-        {
-            return a * d;
-        }
-
-        public static Vector2d operator + (Vector2d a, Vector2d b)
-        {
-            return new Vector2d(a.X + b.X, a.Y + b.Y);
-        }
-
-        public static Vector2d operator - (Vector2d a, Vector2d b)
-        {
-            return new Vector2d(a.X - b.X, a.Y - b.Y);
-        }
-    }
-
-    internal struct Cubic2F
-    {
-        public double ax;
-        public double ay;
-        public double bx;
-        public double by;
-        public double cx;
-        public double cy;
-        public double dx;
-        public double dy;
-
-        public Point2F Point(double t)
-        {
-            return new Point2F(ax * t * t * t + bx * t * t + cx * t + dx,
-                               ay * t * t * t + by * t * t + cy * t + dy);
-        }
-
-        public Cubic2F(Point2F p0, Point2F p1, Point2F p2, Point2F p3)
-        {
-            dx = p0.X;
-            cx = 3 * p1.X - 3 * p0.X;
-            bx = 3 * p2.X - 6 * p1.X + 3 * p0.X;
-            ax = p3.X - 3 * p2.X + 3 * p1.X - p0.X;
-
-            dy = p0.Y;
-            cy = 3 * p1.Y - 3 * p0.Y;
-            by = 3 * p2.Y - 6 * p1.Y + 3 * p0.Y;
-            ay = p3.Y - 3 * p2.Y + 3 * p1.Y - p0.Y;
-        }
-    }
-
-    internal struct Hermite2F
-    {
-        public Point2F p1;
-        public Point2F p2;
-        public Point2F t1;
-        public Point2F t2;
-
-        public Point2F Point(double t)
-        {
-            double h00 =  2 * t * t * t - 3 * t * t + 1;
-            double h10 = t * t * t - 2 * t * t + t;
-            double h01 = -2 * t * t * t + 3 * t * t;
-            double h11 =  t * t * t - t * t;
-
-            double x = h00 * p1.X + h10 * t1.X + h01 * p2.X + h11 * t2.X;
-            double y = h00 * p1.Y + h10 * t1.Y + h01 * p2.Y + h11 * t2.Y;
-
-            return new Point2F(x, y);
-        }
-
-        public Hermite2F(Point2F p1, Point2F t1, Point2F p2, Point2F t2)
-        {
-            this.p1 = p1;
-            this.p2 = p2;
-            this.t1 = t1;
-            this.t2 = t2;
-        }
-    }
-
-    internal struct Biarc2F
-    {
-        public Point2F p1;
-        public Point2F p2;
-        public Point2F pm;
-        public Point2F c1;
-        public Point2F c2;
-        public RotationDirection arc1_dir;
-        public RotationDirection arc2_dir;
-
-        /* Adapted from http://www.ryanjuckett.com/programming/biarc-interpolation
-        */
-
-        private static Point2F calc_pm(Point2F p1, Vector2d t1, Point2F p2, Vector2d t2)
-        {
-            Vector2d v = new Vector2d(p2 - p1);
-            Vector2d t = t1 + t2;
-            double v_dot_t = v * t;
-            double t1_dot_t2 = t1 * t2;
-
-            double d2;
-            double d2_denom = 2 * (1 - t1_dot_t2);
-
-            if (d2_denom == 0)  // equal tangents
-            {
-                d2_denom = 4.0 * (v * t2);
-
-                d2 = v * v / d2_denom;
-
-                if (d2_denom == 0)  // v perpendicular to tangents
-                    return p1 + (Point2F) (v * 0.5);
-            }
-            else    // normal case
-            {
-                double d2_num = -v_dot_t + Math.Sqrt( v_dot_t * v_dot_t + 2 * (1 - t1_dot_t2) * (v * v));
-                d2 = d2_num / d2_denom;
-            }
-
-            return (p1 + p2 + (Point2F) (d2 * (t1 - t2))) * 0.5;
-        }
-
-        private static Point2F calc_arc(Point2F p, Vector2d t, Point2F pm)
-        {
-            Vector2d n = t.Normal();
-
-            Vector2d pm_minus_p = new Vector2d(pm - p);
-            double c_denom = 2 * (n * pm_minus_p);
-            if (c_denom == 0)  // c1 is at infinity, replace arc with line
-                return Point2F.Undefined;
-
-            return p + (Point2F) ((pm_minus_p * pm_minus_p) / c_denom * n);
-        }
-
-        private static RotationDirection calc_dir(Point2F p, Point2F c, Vector2d t)
-        {
-            return new Vector2d(p - c) * t.Normal() > 0 ? RotationDirection.CW : RotationDirection.CCW;
-        }
-
-        public Biarc2F(Point2F p1, Vector2d t1, Point2F p2, Vector2d t2)
-        {
-            this.p1 = p1;
-            this.p2 = p2;
-            this.pm = calc_pm(p1, t1, p2, t2);
-            this.c1 = calc_arc(p1, t1, this.pm);
-            this.c2 = calc_arc(p2, t2, this.pm);
-
-            this.arc1_dir = this.c1.IsUndefined ? RotationDirection.Unknown : calc_dir(p1, this.c1, t1);
-            this.arc2_dir = this.c2.IsUndefined ? RotationDirection.Unknown : calc_dir(p2, this.c2, t2);
-        }
-    }
-
     class Pocket_path_item: Polyline
     {
-        public Pocket_path_item_type Item_type;
-
-        public Pocket_path_item() : base()
-        {
-
-        }
+        public readonly Pocket_path_item_type Item_type;
 
         public Pocket_path_item(Pocket_path_item_type type) : base()
         {
@@ -276,74 +94,17 @@ namespace Matmill
                 this.Add(pt);
         }
 
-        public void Add(Cubic2F spline, double tstep)
-        {
-            Polyline p = new Polyline();
-
-            double t = 0;
-            while (t < 1)
-            {
-                p.Add((Point3F) spline.Point(t));
-                t += tstep;
-            }
-            p.Add((Point3F)spline.Point(1.0));
-
-            p.RemoveDuplicatePoints(0.001);
-
-            p = p.ArcFit(0.001);
-
-            foreach (PolylineItem pi in p.Points)
-                this.Points.Add(pi);
-        }
-
-        public void Add(Hermite2F spline, double step)
-        {
-            // approximation
-            double nsteps = spline.p1.DistanceTo(spline.p2) / step;
-            nsteps = Math.Max(nsteps, 8);
-            double tstep = 1.0 / nsteps;
-
-            Polyline p = new Polyline();
-
-            double t = 0;
-            while (t < 1)
-            {
-                p.Add((Point3F) spline.Point(t));
-                t += tstep;
-            }
-            p.Add((Point3F)spline.Point(1.0));
-
-            //p.RemoveDuplicatePoints(step / 10);
-
-            p = p.ArcFit(step / 10);
-
-            foreach (PolylineItem pi in p.Points)
-                this.Points.Add(pi);
-        }
-
         public void Add(Biarc2F biarc, double tolerance)
         {
-            if (biarc.c1.IsUndefined)
-            {
-                Line2F line = new Line2F(biarc.p1, biarc.pm);
-                this.Add(line, tolerance);
-            }
+            if (biarc.Seg1 is Arc2F)
+                this.Add((Arc2F)biarc.Seg1, tolerance);
             else
-            {
-                Arc2F arc = new Arc2F(biarc.c1, biarc.p1, biarc.pm, biarc.arc1_dir);
-                this.Add(arc, tolerance);
-            }
+                this.Add((Line2F)biarc.Seg1, tolerance);
 
-            if (biarc.c2.IsUndefined)
-            {
-                Line2F line = new Line2F(biarc.pm, biarc.p2);
-                this.Add(line, tolerance);
-            }
+            if (biarc.Seg2 is Arc2F)
+                this.Add((Arc2F)biarc.Seg2, tolerance);
             else
-            {
-                Arc2F arc = new Arc2F(biarc.c2, biarc.pm, biarc.p2, biarc.arc2_dir);
-                this.Add(arc, tolerance);
-            }
+                this.Add((Line2F)biarc.Seg2, tolerance);
         }
     }
 
@@ -366,10 +127,8 @@ namespace Matmill
         private double _segmented_slice_engagement_derating_k = 0.5;
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
-        private Pocket_path_item_type _emit_options =    Pocket_path_item_type.BRANCH_ENTRY
-                                                       | Pocket_path_item_type.CHORD
-                                                       | Pocket_path_item_type.SPIRAL
-                                                       | Pocket_path_item_type.SEGMENT;
+        private bool _should_smooth_chords = false;
+        private bool _should_emit_debug_mat = false;
 
         public double Cutter_d                                    { set { _cutter_r = value / 2.0;}}
         public double General_tolerance                           { set { _general_tolerance = value; } }
@@ -377,9 +136,9 @@ namespace Matmill
         public double Max_engagement                              { set { _max_engagement = value; } }
         public double Min_engagement                              { set { _min_engagement = value; } }
         public double Segmented_slice_engagement_derating_k       { set { _segmented_slice_engagement_derating_k = value; } }
-        public Pocket_path_item_type Emit_options                 { set { _emit_options = value; } }
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
+        public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}
 
         private RotationDirection _initial_dir
         {
@@ -392,12 +151,7 @@ namespace Matmill
             get { return 0.1 * _cutter_r; } // 5 % of cutter diameter is seems to be ok
         }
 
-        private bool should_emit(Pocket_path_item_type mask)
-        {
-            return (int)(_emit_options & mask) != 0;
-        }
-
-        private List<Point2F> sample_curve_old(Polyline p, double step)
+        private List<Point2F> sample_curve(Polyline p, double step)
         {
             // divide curve evenly. There is a bug in CamBam's divide by step routine (duplicate points), while 'divide to n equal segments' should work ok.
             // execution speed may be worse, but who cares
@@ -407,63 +161,6 @@ namespace Matmill
             List<Point2F> points = new List<Point2F>();
             foreach (Point3F pt in PointListUtils.CreatePointlistFromPolyline(p, nsegs).Points)
                 points.Add((Point2F) pt);
-
-            return points;
-        }
-
-        private List<Point2F> sample_curve(Polyline p, double step)
-        {
-            // try to to sample curve segments by step
-            // also make sure to include all segments startpoints to represent sharp edges
-            List<Point2F> points = new List<Point2F>();
-
-            for (int sidx = 0; sidx < p.NumSegments; sidx++)
-            {
-                object seg = p.GetSegment(sidx);
-                if (seg is Line2F)
-                {
-                    Line2F line = (Line2F)seg;
-
-                    points.Add(line.p1);
-
-                    double len = line.Length();
-                    int npoints = (int) (len / step);
-
-                    if (npoints <= 0)
-                        continue;
-
-                    double dx = (line.p2.X - line.p1.X) / npoints;
-                    double dy = (line.p2.Y - line.p1.Y) / npoints;
-                    // exclude first and last points
-                    for (int i = 1; i < npoints - 1; i++)
-                    {
-                        double x = line.p1.X + i * dx;
-                        double y = line.p1.Y + i * dy;
-                        points.Add(new Point2F(x, y));
-                    }
-                }
-                else if (seg is Arc2F)
-                {
-                    Arc2F arc = (Arc2F)seg;
-                    points.Add(arc.P1);
-
-                    double len = arc.GetPerimeter();
-                    int npoints = (int)(len / step);
-
-                    if (npoints <= 0)
-                        continue;
-
-                    double start = arc.Start * Math.PI / 180.0 ;
-                    double da = arc.Sweep * Math.PI / (180.0  * npoints);
-                    // exclude first and last points
-                    for (int i = 1; i < npoints - 1; i++)
-                    {
-                        double x = arc.Center.X + arc.Radius * Math.Cos(start + da * i);
-                        double y = arc.Center.Y + arc.Radius * Math.Sin(start + da * i);
-                        points.Add(new Point2F(x, y));
-                    }
-                }
-            }
 
             return points;
         }
@@ -487,11 +184,11 @@ namespace Matmill
         {
             List<Point2F> plist = new List<Point2F>();
 
-            plist.AddRange(sample_curve_old(_outline, _cutter_r / 10));
+            plist.AddRange(sample_curve(_outline, _cutter_r / 10));
             foreach (Polyline p in _islands)
-                plist.AddRange(sample_curve_old(p, _cutter_r / 10));
+                plist.AddRange(sample_curve(p, _cutter_r / 10));
 
-            Host.log("got {0} points", plist.Count);
+            Logger.log("got {0} points", plist.Count);
 
             double[] xs = new double[plist.Count + 1];
             double[] ys = new double[plist.Count + 1];
@@ -548,7 +245,7 @@ namespace Matmill
 
             List<GraphEdge> edges = new Voronoi(_general_tolerance).generateVoronoi(xs, ys, min_x, max_x, min_y, max_y);
 
-            Host.log("voronoi partitioning completed. got {0} edges", edges.Count);
+            Logger.log("voronoi partitioning completed. got {0} edges", edges.Count);
 
             List<Line2F> inner_segments = new List<Line2F>();
 
@@ -560,7 +257,7 @@ namespace Matmill
                 inner_segments.Add(seg);
             }
 
-            Host.log("got {0} inner segments", inner_segments.Count);
+            Logger.log("got {0} inner segments", inner_segments.Count);
 
             return inner_segments;
         }
@@ -581,43 +278,6 @@ namespace Matmill
 
             // account for margin in just one subrtract. Nice !
             return radius - _cutter_r - _margin;
-        }
-
-        private Slice find_prev_slice(Branch branch, Slice last_slice, Point2F pt, double radius, T4 ready_slices)
-        {
-            Slice best_candidate = null;
-
-            double min_engage = double.MaxValue;
-
-            List<Slice> candidates = branch.Get_upstream_roadblocks();
-            foreach (Slice candidate in candidates)
-            {
-                Slice s = new Slice(candidate, pt, radius, _dir, _cutter_r, last_slice);
-                if (s.Max_engagement == 0)  // no intersections
-                {
-                    if (s.Dist > 0)        // circles are too far away, ignore
-                        continue;
-                    // circles are inside each other, distance is negative, that's ok.
-                    // this slice is a good candidate
-                }
-                else
-                {
-                    s.Refine(find_colliding_slices(s, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k, _cutter_r);
-                }
-
-
-                double slice_engage = s.Max_engagement;
-                if (slice_engage > _max_engagement)
-                    continue;
-
-                if (best_candidate == null || slice_engage < min_engage)
-                {
-                    min_engage = slice_engage;
-                    best_candidate = candidate;
-                }
-            }
-
-            return best_candidate;
         }
 
         private Slice find_nearest_slice(Branch branch, Point2F pt)
@@ -653,85 +313,103 @@ namespace Matmill
             return result;
         }
 
-        // find least common ancestor for the both branches
-        private Pocket_path_item switch_branch(Slice dst, Slice src, T4 ready_slices, Point2F dst_pt, Point2F src_pt)
+        // find the path from src to dst thru least commong ancestor
+        // path is going via the slices centers and excludes the src and dst themselves
+        private List<Point2F> calc_lca_path(Slice dst, Slice src)
         {
-            List<Slice> path = new List<Slice>();
+            List<Point2F> path = new List<Point2F>();
 
-            Point2F current = src_pt.IsUndefined ? src.End : src_pt;
-            Point2F end = dst_pt.IsUndefined ? dst.Start : dst_pt;
+            List<Slice> src_ancestry = new List<Slice>();
+            List<Slice> dst_ancestry = new List<Slice>();
 
-            Pocket_path_item p = new Pocket_path_item();
+            for (Slice s = src.Parent; s != null; s = s.Parent)
+                src_ancestry.Insert(0, s);
 
-            if (dst.Parent == src)  // simple continuation
+            for (Slice s = dst.Parent; s != null; s = s.Parent)
+                dst_ancestry.Insert(0, s);
+
+            int lca;
+            for (lca = 0; lca < Math.Min(src_ancestry.Count, dst_ancestry.Count); lca++)
             {
-                //p.Add(current);
-                //p.Add(end);
-                p = connect_with_smooth_chord(dst, src);
+                if (src_ancestry[lca] != dst_ancestry[lca])
+                    break;
+            }
+
+            if (lca == 0)
+            {
+                ;   // one of the slices must be the root (no ancestry)
             }
             else
             {
-
-                p.Add(current);
-
-                List<Slice> src_ancestry = new List<Slice>();
-                List<Slice> dst_ancestry = new List<Slice>();
-
-                for (Slice s = src.Parent; s != null; s = s.Parent)
-                    src_ancestry.Insert(0, s);
-
-                for (Slice s = dst.Parent; s != null; s = s.Parent)
-                    dst_ancestry.Insert(0, s);
-
-                int lca;
-                for (lca = 0; lca < Math.Min(src_ancestry.Count, dst_ancestry.Count); lca++)
-                {
-                    if (src_ancestry[lca] != dst_ancestry[lca])
-                        break;
-                }
-
-                if (lca == 0)
-                {
-                    ;   // one of the slices must be the root (no ancestry). it is already included in path
-                }
-                else
-                {
-                    lca -= 1;   // the first diverging slices in ancestries were detected, lca is the last same slice, so -1
-                }
-
-                // now lca contains the lca of branches
-                // collect path up from src to lca and down to dst
-                for (int i = src_ancestry.Count - 1; i > lca; i--)
-                    path.Add(src_ancestry[i]);
-
-                for (int i = lca; i < dst_ancestry.Count - 1; i++)
-                    path.Add(dst_ancestry[i]);
-
-                // trace path
-                // follow the path, while looking for a shortcut to reduce travel time
-                // TODO: skip parts of path to reduce travel even more
-                for (int i = 0; i < path.Count; i++)
-                {
-                    Slice s = path[i];
-                    if (may_shortcut(current, end, ready_slices))
-                       break;
-
-                    current = s.Center;
-                    p.Add(current);
-                }
-
-                p.Add(end);
+                lca -= 1;   // the first diverging slices in ancestries were detected, lca is the last same slice, so -1
             }
+
+            // now lca contains the lca of branches
+            // collect path up from src to lca and down to dst
+            for (int i = src_ancestry.Count - 1; i > lca; i--)
+                path.Add(src_ancestry[i].Center);
+
+            for (int i = lca; i < dst_ancestry.Count - 1; i++)
+                path.Add(dst_ancestry[i].Center);
+
+            return path;
+        }
+
+        private Pocket_path_item trace_branch_switch(Slice dst, Slice src, T4 ready_slices)
+        {
+            Point2F current = src.End;
+            Point2F end = dst.Start;
+
+            if (dst.Parent == src)  // simple continuation
+                return connect_slices(dst, src);
+
+            // follow the lca path, while looking for a shortcut to reduce travel time
+            // TODO: skip parts of path to reduce travel even more
+            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.BRANCH_ENTRY);
+
+            List<Point2F> path = calc_lca_path(dst, src);
+            p.Add(current);
+            foreach (Point2F pt in path)
+            {
+                if (may_shortcut(current, end, ready_slices))
+                    break;
+                current = pt;
+                p.Add(current);
+            }
+            p.Add(end);
 
             return p;
         }
 
-        private Pocket_path_item switch_branch(Slice dst, Slice src, T4 ready_slices)
+        private Pocket_path_item trace_return_to_base(Slice root_slice, Slice last_slice, T4 all_slices)
         {
-            return switch_branch(dst, src, ready_slices, Point2F.Undefined, Point2F.Undefined);
+            Point2F current = last_slice.End;
+            Point2F end = root_slice.Center;
+
+            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.RETURN_TO_BASE);
+
+            List<Point2F> path = new List<Point2F>();
+
+            if (last_slice != root_slice)
+            {
+                for (Slice s = last_slice.Parent; s != root_slice; s = s.Parent)
+                    path.Add(s.Center);
+            }
+
+            p.Add(current);
+            foreach (Point2F pt in path)
+            {
+                if (may_shortcut(current, end, all_slices))
+                    break;
+                current = pt;
+                p.Add(current);
+            }
+            p.Add(end);
+
+            return p;
         }
 
-        private void roll(Branch branch, T4 ready_slices, ref Slice last_slice)
+        private void trace_branch(Branch branch, T4 ready_slices, ref Slice last_slice)
         {
             Slice parent_slice = null;
 
@@ -748,7 +426,7 @@ namespace Matmill
                 parent_slice = find_nearest_slice(branch, start_pt);
                 if (parent_slice == null)
                 {
-                    Host.warn("failed to attach branch");
+                    Logger.warn("failed to attach branch");
                     return;
                 }
             }
@@ -756,7 +434,7 @@ namespace Matmill
             {
                 Slice s = new Slice(start_pt, start_radius, _initial_dir);
                 branch.Slices.Add(s);
-                insert_in_t4(ready_slices, s);
+                insert_slice_in_t4(ready_slices, s);
                 parent_slice = s;
                 last_slice = s;
             }
@@ -828,7 +506,7 @@ namespace Matmill
                 // discard slice if outside a little relaxed overshoot
                 if (err > ENGAGEMENT_TOLERANCE_PERCENTAGE * 10)
                 {
-                    Host.err("failed to create slice within stepover limit. stopping slicing the branch");
+                    Logger.err("failed to create slice within stepover limit. stopping slicing the branch");
                     return;
                 }
 
@@ -837,19 +515,16 @@ namespace Matmill
 
                 // generate branch entry after finding the first valid slice (before populating ready slices)
                 if (branch.Slices.Count == 0 && last_slice != null)
-                {
-                    branch.Entry = switch_branch(candidate, last_slice, ready_slices);
-                    branch.Entry.Item_type = Pocket_path_item_type.BRANCH_ENTRY;
-                }
+                    branch.Entry = trace_branch_switch(candidate, last_slice, ready_slices);
 
                 branch.Slices.Add(candidate);
-                insert_in_t4(ready_slices, candidate);
+                insert_slice_in_t4(ready_slices, candidate);
                 parent_slice = candidate;
                 last_slice = candidate;
             }
         }
 
-        private void attach_segments(Branch me, Segpool pool)
+        private void build_branch(Branch me, Segpool pool)
         {
             Point2F running_end = me.Curve.End;
             List<Point2F> followers;
@@ -872,12 +547,12 @@ namespace Matmill
                 Branch b = new Branch(me);
                 b.Curve.Add(running_end);
                 b.Curve.Add(pt);
-                attach_segments(b, pool);
+                build_branch(b, pool);
 
                 if (b.Deep_distance() > _general_tolerance) // attach only 'long enough'
                     me.Children.Add(b);
                 else
-                    Host.log("skipping short branch");
+                    Logger.log("skipping short branch");
             }
             // prefer a shortest branch
             me.Children.Sort((a, b) => a.Deep_distance().CompareTo(b.Deep_distance()));
@@ -889,7 +564,7 @@ namespace Matmill
             Branch root = new Branch(null);
             Point2F tree_start = Point2F.Undefined;
 
-            Host.log("analyzing segments");
+            Logger.log("analyzing segments");
 
             // a lot of stuff going on here.
             // segments are analyzed for mic radius from both ends. passed segmens are inserted in segpool
@@ -934,12 +609,12 @@ namespace Matmill
                 // manual startpoint, seek the segment with the closest end to startpoint
                 if (! is_line_inside_region(new Line2F(_startpoint, _startpoint), false))
                 {
-                    Host.warn("startpoint is outside the pocket");
+                    Logger.warn("startpoint is outside the pocket");
                     return null;
                 }
                 if (get_mic_radius(_startpoint) < _min_passable_mic_radius)
                 {
-                    Host.warn("startpoint radius < cutter radius");
+                    Logger.warn("startpoint radius < cutter radius");
                     return null;
                 }
 
@@ -978,19 +653,19 @@ namespace Matmill
 
             if (tree_start.IsUndefined)
             {
-                Host.warn("failed to choose tree start point");
+                Logger.warn("failed to choose tree start point");
                 return null;
             }
 
-            Host.log("done analyzing segments");
-            Host.log("got {0} hashes", pool.N_hashes);
+            Logger.log("done analyzing segments");
+            Logger.log("got {0} hashes", pool.N_hashes);
 
             root.Curve.Add(tree_start);
-            attach_segments(root, pool);
+            build_branch(root, pool);
             return root;
         }
 
-        private void insert_in_t4(T4 t4, Slice slice)
+        private void insert_slice_in_t4(T4 t4, Slice slice)
         {
             Point2F min = Point2F.Undefined;
             Point2F max = Point2F.Undefined;
@@ -999,7 +674,7 @@ namespace Matmill
             t4.Add(rect, slice);
         }
 
-        private void insert_in_t4(T4 t4, Polyline p)
+        private void insert_polyline_in_t4(T4 t4, Polyline p)
         {
             for (int i = 0; i < p.NumSegments; i++)
             {
@@ -1123,65 +798,99 @@ namespace Matmill
             return may_shortcut(a, b, colliders);
         }
 
-        private Point2F lines_intersection(Line2F a, Line2F b)
+        private Pocket_path_item connect_slices_with_biarc(Slice dst, Slice src)
         {
-            double x1 = a.p1.X;
-            double y1 = a.p1.Y;
-            double x2 = a.p2.X;
-            double y2 = a.p2.Y;
-            double x3 = b.p1.X;
-            double y3 = b.p1.Y;
-            double x4 = b.p2.X;
-            double y4 = b.p2.Y;
-
-            double x = ((x1 * y2 - y1 * x2) * (x3 - x4) - (x1 - x2) * (x3 * y4 - y3 * x4)) /
-                       ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4));
-
-            double y = ((x1 * y2 - y1 * x2) * (y3 - y4) - (y1 - y2) * (x3 * y4 - y3 * x4)) /
-                       ((x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4));
-
-            return new Point2F(x, y);
-        }
-
-        private Point2F infinite_lines_intersection(Point2F start_a, Vector2F v_a, Point2F start_b, Vector2F v_b)
-        {
-            Line2F a = new Line2F(start_a.X, start_a.Y, start_a.X + v_a.X, start_a.Y + v_a.Y);
-            Line2F b = new Line2F(start_b.X, start_b.Y, start_b.X + v_b.X, start_b.Y + v_b.Y);
-
-            //return lines_intersection(a, b);
-            return Line2F.ProjectionIntersect(a, b);
-        }
-
-        // connect slices with a cubic spline
-        // XXX: to be tested
-        private Pocket_path_item connect_with_smooth_chord(Slice slice, Slice prev_slice)
-        {
-            Point2F start = prev_slice.End;
-            Point2F end = slice.Start;
+            Point2F start = src.End;
+            Point2F end = dst.Start;
             // unit normals to points
-            Vector2d vn_start = new Vector2d(prev_slice.Center, start).Unit();
-            Vector2d vn_end = new Vector2d(slice.Center, end).Unit();
+            Vector2d vn_start = new Vector2d(src.Center, start).Unit();
+            Vector2d vn_end = new Vector2d(dst.Center, end).Unit();
             // tangents to points
             Vector2d vt_start;
             Vector2d vt_end;
-            if (prev_slice.Segments[0].Direction == RotationDirection.CW)
+            if (src.Dir == RotationDirection.CW)
                 vt_start = new Vector2d(vn_start.Y, -vn_start.X);
             else
                 vt_start = new Vector2d(-vn_start.Y, vn_start.X);
 
-            if (slice.Segments[0].Direction == RotationDirection.CW)
+            if (dst.Dir == RotationDirection.CW)
                 vt_end = new Vector2d(vn_end.Y, -vn_end.X);
             else
                 vt_end = new Vector2d(-vn_end.Y, vn_end.X);
 
             Biarc2F biarc = new Biarc2F(start, vt_start, end, vt_end);
 
-            Pocket_path_item result = new Pocket_path_item(Pocket_path_item_type.SMOOTH_CHORD);
-            result.Add(biarc, _general_tolerance);
-            return result;
+            if (!is_biarc_inside_ball(biarc, src.Ball))
+                return null;
+            
+            Pocket_path_item path = new Pocket_path_item(Pocket_path_item_type.SMOOTH_CHORD);
+            path.Add(biarc, _general_tolerance);
+            return path;            
         }
 
-        private Pocket_path generate_path(List<Branch> traverse, T4 ready_slices)
+        private Pocket_path_item connect_slices_with_chord(Slice dst, Slice src)
+        {
+            Pocket_path_item path = new Pocket_path_item(Pocket_path_item_type.CHORD);
+            path.Add(src.End);
+            path.Add(dst.Start);
+            return path;
+        }
+
+        private bool is_biarc_inside_ball(Biarc2F biarc, Circle2F ball)
+        {
+            if (biarc.Pm.DistanceTo(ball.Center) > ball.Radius)
+                return false;
+
+            Point2F start = biarc.P1;
+            Point2F end = biarc.P2;
+            Line2F insects;
+
+            if (biarc.Seg1 is Line2F)
+                insects = ball.LineIntersect((Line2F)biarc.Seg1);
+            else
+                insects = ((Arc2F)biarc.Seg1).CircleIntersect(ball);
+
+            if ((! insects.p1.IsUndefined) && insects.p1.DistanceTo(start) < _general_tolerance)
+                insects.p1 = Point2F.Undefined;
+            if ((!insects.p2.IsUndefined) && insects.p2.DistanceTo(start) < _general_tolerance)
+                insects.p2 = Point2F.Undefined;
+
+            if (!(insects.p1.IsUndefined && insects.p2.IsUndefined))
+                return false;
+
+            if (biarc.Seg2 is Line2F)
+                insects = ball.LineIntersect((Line2F)biarc.Seg2);
+            else
+                insects = ((Arc2F)biarc.Seg2).CircleIntersect(ball);
+
+            if ((!insects.p1.IsUndefined) && insects.p1.DistanceTo(end) < _general_tolerance)
+                insects.p1 = Point2F.Undefined;
+            if ((!insects.p2.IsUndefined) && insects.p2.DistanceTo(end) < _general_tolerance)
+                insects.p2 = Point2F.Undefined;
+
+            if (!(insects.p1.IsUndefined && insects.p2.IsUndefined))
+                return false;
+
+            return true;
+        }
+
+        private Pocket_path_item connect_slices(Slice dst, Slice src)
+        {
+            Pocket_path_item path;
+
+            if (_should_smooth_chords)
+            {
+                path = connect_slices_with_biarc(dst, src);
+                if (path != null)                
+                    return path;                                
+                // fallback to the straight chord
+                Logger.warn("biarc is outside the slice, replacing with chord");                
+            }
+
+            return connect_slices_with_chord(dst, src);
+        }
+
+        private Pocket_path generate_path(List<Branch> traverse, T4 all_slices)
         {
             Slice last_slice = null;
 
@@ -1190,27 +899,23 @@ namespace Matmill
             Slice root_slice = traverse[0].Slices[0];
 
             // emit spiral toolpath for root
-            if (should_emit(Pocket_path_item_type.SPIRAL))
-            {
-                Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Start, _max_engagement, _initial_dir);
-                path.Add(new Pocket_path_item(Pocket_path_item_type.SPIRAL, spiral));
-            }
+            Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Start, _max_engagement, _initial_dir);
+            path.Add(new Pocket_path_item(Pocket_path_item_type.SPIRAL, spiral));
 
             for (int bidx = 0; bidx < traverse.Count; bidx++)
             {
                 Branch b = traverse[bidx];
 
-                if (should_emit(Pocket_path_item_type.DEBUG_MAT))
+                if (_should_emit_debug_mat)
                 {
                     Pocket_path_item mat = new Pocket_path_item(Pocket_path_item_type.DEBUG_MAT);
                     mat.Add(b.Curve);
                     path.Add(mat);
                 }
 
-                if (should_emit(Pocket_path_item_type.BRANCH_ENTRY) && b.Entry != null)
-                {
+                // emit branch entry path
+                if (b.Entry != null)
                     path.Add(b.Entry);
-                }
 
                 for (int sidx = 0; sidx < b.Slices.Count; sidx++)
                 {
@@ -1218,70 +923,45 @@ namespace Matmill
 
                     // connect following branch slices with chords
                     if (sidx > 0)
-                    {
-                        if (should_emit(Pocket_path_item_type.CHORD))
-                        {
-                            Pocket_path_item chord = new Pocket_path_item(Pocket_path_item_type.CHORD);
-                            chord.Add(last_slice.End);
-                            chord.Add(s.Start);
-                            path.Add(chord);
-                        }
-                        else if (should_emit(Pocket_path_item_type.SMOOTH_CHORD))
-                        {
-                            Pocket_path_item arc = connect_with_smooth_chord(s, last_slice);
-                            path.Add(arc);
-                        }
-                    }
+                        path.Add(connect_slices(s, last_slice));
 
                     // emit segments
                     for (int segidx = 0; segidx < s.Segments.Count; segidx++)
                     {
                         // connect segments
-                        if (should_emit(Pocket_path_item_type.SEGMENT_CHORD) && segidx > 0)
+                        if (segidx > 0)
                         {
-                            Pocket_path_item segchord = new Pocket_path_item(Pocket_path_item_type.CHORD);
-                            segchord.Add(s.Segments[segidx - 1].P2);
-                            segchord.Add(s.Segments[segidx].P1);
-                            path.Add(segchord);
+                            Pocket_path_item shortcut = new Pocket_path_item(Pocket_path_item_type.SLICE_SHORTCUT);
+                            shortcut.Add(s.Segments[segidx - 1].P2);
+                            shortcut.Add(s.Segments[segidx].P1);
+                            path.Add(shortcut);
                         }
 
-                        if (should_emit(Pocket_path_item_type.SEGMENT))
-                        {
-                            Pocket_path_item slice = new Pocket_path_item(Pocket_path_item_type.SEGMENT);
-                            slice.Add(s.Segments[segidx], _general_tolerance);
-                            //arc.Tag = String.Format("me {0:F4}, so {1:F4}", s.Max_engagement, s.Max_engagement / (_cutter_r * 2));
-                            path.Add(slice);
-                        }
+                        Pocket_path_item slice = new Pocket_path_item(Pocket_path_item_type.SLICE);
+                        slice.Add(s.Segments[segidx], _general_tolerance);
+                        path.Add(slice);
                     }
                     last_slice = s;
                 }
             }
 
-            if (should_emit(Pocket_path_item_type.RETURN_TO_BASE))
-            {
-                Pocket_path_item return_to_base = switch_branch(root_slice, last_slice, ready_slices, root_slice.Center, Point2F.Undefined);
-                return_to_base.Item_type = Pocket_path_item_type.RETURN_TO_BASE;
-                path.Add(return_to_base);
-            }
+            path.Add(trace_return_to_base(root_slice, last_slice, all_slices));
 
             return path;
         }
 
         public Pocket_path run()
         {
-            if (should_emit(Pocket_path_item_type.SMOOTH_CHORD) && should_emit(Pocket_path_item_type.CHORD))
-                throw new Exception("smooth chords and straight chords are mutually exclusive");
-
-            if (_dir == RotationDirection.Unknown && should_emit(Pocket_path_item_type.SMOOTH_CHORD))
+            if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
 
             List<Line2F> mat_lines = get_mat_segments();
 
-            Host.log("building tree");
+            Logger.log("building tree");
             Branch root = build_tree(mat_lines);
             if (root == null)
             {
-                Host.warn("failed to build tree");
+                Logger.warn("failed to build tree");
                 return null;
             }
 
@@ -1290,11 +970,11 @@ namespace Matmill
             T4 ready_slices = new T4(_reg_t4.Rect);
             Slice last_slice = null;
 
-            Host.log("generating slices");
+            Logger.log("generating slices");
             foreach (Branch b in traverse)
-                roll(b, ready_slices, ref last_slice);
+                trace_branch(b, ready_slices, ref last_slice);
 
-            Host.log("generating path");
+            Logger.log("generating path");
             return generate_path(traverse, ready_slices);
         }
 
@@ -1310,9 +990,9 @@ namespace Matmill
 
             _reg_t4 = new T4(new T4_rect(min.X - 1, min.Y - 1, max.X + 1, max.Y + 1));
 
-            insert_in_t4(_reg_t4, _outline);
+            insert_polyline_in_t4(_reg_t4, _outline);
             foreach (Polyline island in _islands)
-                insert_in_t4(_reg_t4, island);
+                insert_polyline_in_t4(_reg_t4, island);
         }
     }
 }

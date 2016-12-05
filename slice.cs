@@ -1,5 +1,4 @@
 using System;
-using System.Collections;
 using System.Collections.Generic;
 
 using CamBam.Geom;
@@ -26,6 +25,7 @@ namespace Matmill
         public List<Arc2F> Segments     { get { return _segments; } }
         public Point2F Start            { get { return _segments[0].P1; } }
         public Point2F End              { get { return _segments[_segments.Count - 1].P2; } }
+        public RotationDirection Dir    { get { return _segments[0].Direction; } }
 
         static private double angle_between_vectors(Vector2F v0, Vector2F v1, RotationDirection dir)
         {
@@ -43,7 +43,7 @@ namespace Matmill
 
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
             {
-                Host.err("no wall intersections #0");
+                Logger.err("no wall intersections #0");
                 return 0;
             }
 
@@ -80,7 +80,7 @@ namespace Matmill
 
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
             {
-                Host.err("no wall intersections #1");
+                Logger.err("no wall intersections #1");
                 return;
             }
 
@@ -91,7 +91,7 @@ namespace Matmill
 
             if (insects.p1.IsUndefined && insects.p2.IsUndefined)
             {
-                Host.err("no wall intersections #2");
+                Logger.err("no wall intersections #2");
                 return;
             }
 
@@ -280,7 +280,7 @@ namespace Matmill
 
             if (max_eng <= 0)
             {
-                Host.err("max engagement vanished after refining the slice !");
+                Logger.err("max engagement vanished after refining the slice !");
                 return;
             }
 
@@ -314,7 +314,7 @@ namespace Matmill
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
             {
                 // try to return meaningful result even if CB routine had failed (unlikely)
-                Host.err("no intersections found there intersections should be (_parent.Ball.CircleIntersect(_ball))");
+                Logger.err("no intersections found there intersections should be (_parent.Ball.CircleIntersect(_ball))");
                 if (_dist <= radius || _dist <= parent.Radius)
                     _dist = -Math.Abs(_dist);
                 return;
@@ -356,7 +356,7 @@ namespace Matmill
 
             if (_mid_engagement <= 0)
             {
-                Host.warn("forced to patch mid_engagement");
+                Logger.warn("forced to patch mid_engagement");
                 _mid_engagement = coarse_engagement;    // shouldn't be, but ok
             }
 
