@@ -65,6 +65,7 @@ namespace Trochopock
         protected double _segmented_slice_derating = 0.5;
         protected bool _may_return_to_base = true;
         protected bool _should_smooth_chords = false;
+        protected bool _should_draw_chords = false;
 
         //--- invisible and non-serializable properties
 
@@ -208,7 +209,7 @@ namespace Trochopock
 			get { return this._min_stepover_percentage; }
 			set
             {
-                _min_stepover_percentage = value;
+                this._min_stepover_percentage = value;
 
                 if (value < 0.1 || value > 0.9)
                 {
@@ -228,7 +229,7 @@ namespace Trochopock
 		public double Segmented_slice_derating
 		{
 			get { return this._segmented_slice_derating; }
-			set { _segmented_slice_derating = value; }
+			set { this._segmented_slice_derating = value; }
 		}
 
         [
@@ -240,7 +241,7 @@ namespace Trochopock
 		public bool May_return_to_base
 		{
 			get { return this._may_return_to_base; }
-			set { _may_return_to_base = value; }
+			set { this._may_return_to_base = value; }
 		}
 
         [
@@ -248,14 +249,26 @@ namespace Trochopock
             Category("Options"),
             Description("Replace straight chords with the smooth arcs to form a continous toolpath. " +
                         "This may be useful on a machines with the slow acceleration.\n" +
-                        "Not applied in the mixed milling mode"),
+                        "Not applied to the the mixed milling direction."),
             DisplayName("Smooth chords")
         ]
 		public bool Should_smooth_chords
 		{
 			get { return this._should_smooth_chords; }
-			set { _should_smooth_chords = value; }
+			set { this._should_smooth_chords = value; }
 		}
+
+        [
+            CBAdvancedValue,
+            Category("Options"),
+            Description("Display the chords. The chords clutters the view, but may be useful for debug."),
+            DisplayName("Show chords")
+        ]
+        public bool Should_draw_chords
+        {
+            get { return this._should_draw_chords; }
+            set { this._should_draw_chords = value; }
+        }
 
         //-- read-only About field
 
@@ -745,10 +758,7 @@ namespace Trochopock
         {
             Polyline leadin = path.Leadin;
 
-//            Color move_arccolor = Color.FromArgb(arccolor.A / 4, arccolor);
-//            Color move_linecolor = Color.FromArgb(linecolor.A / 4, linecolor);
-
-            Color move_color = Color.FromArgb(128, CamBamConfig.Defaults.ToolpathRapidColor);
+            Color chord_color = Color.FromArgb(128, CamBamConfig.Defaults.ToolpathRapidColor);
 
             if (leadin != null)
             {
@@ -765,8 +775,19 @@ namespace Trochopock
 
             foreach (Pocket_path_item p in path.Trajectory)
             {
-                if (p.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (!path.Should_return_to_base))
+                Color acol = arccolor;
+                Color lcol = linecolor;
+
+                if (p.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (! path.Should_return_to_base))
                     continue;
+
+                if (p.Item_type == Pocket_path_item_type.CHORD || p.Item_type == Pocket_path_item_type.SMOOTH_CHORD || p.Item_type == Pocket_path_item_type.SLICE_SHORTCUT)
+                {
+                    if (! _should_draw_chords)
+                        continue;
+                    acol = chord_color;
+                    lcol = chord_color;
+                }
 
                 Matrix4x4F mx = new Matrix4x4F();
                 mx.Translate(0.0, 0.0, path.Bottom);
@@ -776,11 +797,7 @@ namespace Trochopock
                 d3d.ModelTransform = mx;
                 d3d.LineWidth = 1F;
 
-                if (p.Item_type == Pocket_path_item_type.SLICE || p.Item_type == Pocket_path_item_type.SPIRAL)
-                    p.Paint(d3d, arccolor, linecolor);
-                else
-                    p.Paint(d3d, move_color, move_color);
-
+                p.Paint(d3d, acol, lcol);
                 base.PaintDirectionVector(iv, p, d3d, mx);
             }
         }
@@ -875,6 +892,7 @@ namespace Trochopock
             Segmented_slice_derating = src.Segmented_slice_derating;
             May_return_to_base = src.May_return_to_base;
             Should_smooth_chords = src.Should_smooth_chords;
+            Should_draw_chords = src.Should_draw_chords;
         }
 
         public Mop_matmill()
