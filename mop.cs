@@ -64,6 +64,7 @@ namespace Trochopock
         protected double _min_stepover_percentage = 0.9;
         protected double _segmented_slice_derating = 0.5;
         protected bool _may_return_to_base = true;
+        protected bool _should_smooth_chords = false;
 
         //--- invisible and non-serializable properties
 
@@ -242,6 +243,20 @@ namespace Trochopock
 			set { _may_return_to_base = value; }
 		}
 
+        [
+            CBAdvancedValue,
+            Category("Options"),
+            Description("Replace straight chords with the smooth arcs to form a continous toolpath. " +
+                        "This may be useful on a machines with the slow acceleration.\n" +
+                        "Not applied in the mixed milling mode"),
+            DisplayName("Smooth chords")
+        ]
+		public bool Should_smooth_chords
+		{
+			get { return this._should_smooth_chords; }
+			set { _should_smooth_chords = value; }
+		}
+
         //-- read-only About field
 
         [
@@ -367,14 +382,13 @@ namespace Trochopock
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
             gen.Segmented_slice_engagement_derating_k = _segmented_slice_derating;
 
-            gen.Should_smooth_chords = true;
-
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
             gen.Margin = base.RoughingClearance.Cached;
 
             if (_milling_direction.Cached == MillingDirectionOptions.Mixed || base.SpindleDirection.Cached == SpindleDirectionOptions.Off)
             {
                 gen.Mill_direction = RotationDirection.Unknown; // means 'mixed' here
+                gen.Should_smooth_chords = false;
             }
             else
             {
@@ -382,6 +396,7 @@ namespace Trochopock
                 if (_milling_direction.Cached == MillingDirectionOptions.Climb)
                     dir = -dir;
                 gen.Mill_direction = (RotationDirection)dir;
+                gen.Should_smooth_chords = _should_smooth_chords;
             }
 
             return gen.run();
@@ -730,8 +745,10 @@ namespace Trochopock
         {
             Polyline leadin = path.Leadin;
 
-            Color move_acolor = Color.FromArgb(255, arccolor);
-            Color move_linecolor = Color.FromArgb(255, linecolor);
+//            Color move_arccolor = Color.FromArgb(arccolor.A / 4, arccolor);
+//            Color move_linecolor = Color.FromArgb(linecolor.A / 4, linecolor);
+
+            Color move_color = Color.FromArgb(128, CamBamConfig.Defaults.ToolpathRapidColor);
 
             if (leadin != null)
             {
@@ -760,9 +777,9 @@ namespace Trochopock
                 d3d.LineWidth = 1F;
 
                 if (p.Item_type == Pocket_path_item_type.SLICE || p.Item_type == Pocket_path_item_type.SPIRAL)
-                    p.Paint(d3d, arccolor, linecolor);                
+                    p.Paint(d3d, arccolor, linecolor);
                 else
-                    p.Paint(d3d, move_acolor, move_linecolor);
+                    p.Paint(d3d, move_color, move_color);
 
                 base.PaintDirectionVector(iv, p, d3d, mx);
             }
@@ -857,6 +874,7 @@ namespace Trochopock
             Min_stepover = src.Min_stepover;
             Segmented_slice_derating = src.Segmented_slice_derating;
             May_return_to_base = src.May_return_to_base;
+            Should_smooth_chords = src.Should_smooth_chords;
         }
 
         public Mop_matmill()

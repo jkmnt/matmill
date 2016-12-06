@@ -94,7 +94,7 @@ namespace Matmill
                 this.Add(pt);
         }
 
-        public void Add(Biarc2F biarc, double tolerance)
+        public void Add(Biarc2d biarc, double tolerance)
         {
             if (biarc.Seg1 is Arc2F)
                 this.Add((Arc2F)biarc.Seg1, tolerance);
@@ -422,13 +422,15 @@ namespace Matmill
             if (branch.Parent != null)
             {
                 // non-initial slice
-                //prev_slice = find_prev_slice(branch, last_slice, start_pt, start_radius, ready_slices);
                 parent_slice = find_nearest_slice(branch, start_pt);
                 if (parent_slice == null)
                 {
                     Logger.warn("failed to attach branch");
                     return;
                 }
+
+                if (last_slice == null)
+                    throw new Exception("last slice is null - shouldn't be");
             }
             else
             {
@@ -513,8 +515,12 @@ namespace Matmill
                 // discard slice if outside the specified min engagement
                 if (candidate.Max_engagement < _min_engagement) return;
 
+                // last slice was a root slice, change its startpoint to remove extra travel
+                if (last_slice.Parent == null)
+                    last_slice.Change_startpoint(candidate.Start);
+
                 // generate branch entry after finding the first valid slice (before populating ready slices)
-                if (branch.Slices.Count == 0 && last_slice != null)
+                if (branch.Slices.Count == 0)
                     branch.Entry = trace_branch_switch(candidate, last_slice, ready_slices);
 
                 branch.Slices.Add(candidate);
@@ -818,14 +824,14 @@ namespace Matmill
             else
                 vt_end = new Vector2d(-vn_end.Y, vn_end.X);
 
-            Biarc2F biarc = new Biarc2F(start, vt_start, end, vt_end);
+            Biarc2d biarc = new Biarc2d(start, vt_start, end, vt_end);
 
             if (!is_biarc_inside_ball(biarc, src.Ball))
                 return null;
-            
+
             Pocket_path_item path = new Pocket_path_item(Pocket_path_item_type.SMOOTH_CHORD);
             path.Add(biarc, _general_tolerance);
-            return path;            
+            return path;
         }
 
         private Pocket_path_item connect_slices_with_chord(Slice dst, Slice src)
@@ -836,7 +842,7 @@ namespace Matmill
             return path;
         }
 
-        private bool is_biarc_inside_ball(Biarc2F biarc, Circle2F ball)
+        private bool is_biarc_inside_ball(Biarc2d biarc, Circle2F ball)
         {
             if (biarc.Pm.DistanceTo(ball.Center) > ball.Radius)
                 return false;
@@ -878,13 +884,14 @@ namespace Matmill
         {
             Pocket_path_item path;
 
-            if (_should_smooth_chords)
+            // do not emit biarcs if distance is too small ( < 5 % of the cutter diameter)
+            if (_should_smooth_chords && src.End.DistanceTo(dst.Start) > _cutter_r * 0.1)
             {
                 path = connect_slices_with_biarc(dst, src);
-                if (path != null)                
-                    return path;                                
+                if (path != null)
+                    return path;
                 // fallback to the straight chord
-                Logger.warn("biarc is outside the slice, replacing with chord");                
+                Logger.warn("biarc is outside the slice, replacing with chord");
             }
 
             return connect_slices_with_chord(dst, src);
@@ -899,8 +906,10 @@ namespace Matmill
             Slice root_slice = traverse[0].Slices[0];
 
             // emit spiral toolpath for root
-            Polyline spiral = SpiralGenerator.GenerateFlatSpiral(root_slice.Center, root_slice.Start, _max_engagement, _initial_dir);
-            path.Add(new Pocket_path_item(Pocket_path_item_type.SPIRAL, spiral));
+            Pocket_path_item spiral = new Pocket_path_item(Pocket_path_item_type.SPIRAL);
+            foreach (Biarc2d biarc in Spiral_generator.Gen_archimedean_spiral(root_slice.Center, root_slice.Start, _max_engagement, _initial_dir))
+                spiral.Add(biarc, _general_tolerance);
+            path.Add(spiral);
 
             for (int bidx = 0; bidx < traverse.Count; bidx++)
             {

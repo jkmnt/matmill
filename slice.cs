@@ -288,6 +288,34 @@ namespace Matmill
             _max_engagement = Math.Max(max_eng, _entry_engagement);
         }
 
+        private void create_initial_slice(Point2F center, Point2F p1, RotationDirection dir)
+        {
+            double radius = p1.DistanceTo(center);
+            double seg_sweep = dir == RotationDirection.CW ? -2 * Math.PI / 3 : 2 * Math.PI / 3;
+            double v1_angle = new Vector2F(center, p1).Angle;
+            double v2_angle = v1_angle + seg_sweep;
+            double v3_angle = v1_angle + 2 * seg_sweep;
+
+            Point2F p2 = new Point2F(center.X + radius * Math.Cos(v2_angle), center.Y + radius * Math.Sin(v2_angle));
+            Point2F p3 = new Point2F(center.X + radius * Math.Cos(v3_angle), center.Y + radius * Math.Sin(v3_angle));
+
+            _segments.Clear();
+
+            _segments.Add(new Arc2F(center, p1, p2, dir));
+            _segments.Add(new Arc2F(center, p2, p3, dir));
+            _segments.Add(new Arc2F(center, p3, p1, dir));
+        }
+
+        public void Change_startpoint(Point2F p1)
+        {
+            if (_parent != null)
+                throw new Exception("startpoint may be changed for the root slice only");
+            if (Math.Abs((p1.DistanceTo(Center) - Radius) / Radius) > 0.001)
+                throw new Exception("new startpoint is outside the initial circle");
+
+            create_initial_slice(Center, p1, Dir);
+        }
+
         public Slice(Slice parent, Point2F center, double radius, RotationDirection dir, double cutter_r, Slice last_slice)
         {
             _parent = parent;
@@ -366,19 +394,7 @@ namespace Matmill
         public Slice(Point2F center, double radius, RotationDirection dir)
         {
             _ball = new Circle2F(center, radius);
-
-            if (dir == RotationDirection.CCW)
-            {
-                _segments.Add(new Arc2F(center, radius, 0, 120));
-                _segments.Add(new Arc2F(center, radius, 120, 120));
-                _segments.Add(new Arc2F(center, radius, 240, 120));
-            }
-            else
-            {
-                _segments.Add(new Arc2F(center, radius, 0, -120));
-                _segments.Add(new Arc2F(center, radius, 240, -120));
-                _segments.Add(new Arc2F(center, radius, 120, -120));
-            }
+            create_initial_slice(center, new Point2F(center.X + radius, center.Y), dir);
         }
     }
 }

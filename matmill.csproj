@@ -85,6 +85,7 @@
     </Compile>
     <Compile Include="segpool.cs" />
     <Compile Include="slice.cs" />
+    <Compile Include="spiral.cs" />
     <Compile Include="tree4.cs" />
     <Compile Include="Voronoi.cs" />
     <Compile Include="VoronoiElements.cs" />

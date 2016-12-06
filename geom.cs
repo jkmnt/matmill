@@ -89,7 +89,7 @@ namespace Geom
         }
     }
 
-    public struct Biarc2F
+    public struct Biarc2d
     {
         public object Seg1;
         public object Seg2;
@@ -184,7 +184,7 @@ namespace Geom
             return segs;
         }
 
-        public Biarc2F(Point2F p1, Vector2d t1, Point2F p2, Vector2d t2)
+        public Biarc2d(Point2F p1, Vector2d t1, Point2F p2, Vector2d t2)
         {
             Point2F pm = calc_pm(p1, t1, p2, t2);
             object[] segs = calc_arcs(p1, t1, p2, t2, pm);
