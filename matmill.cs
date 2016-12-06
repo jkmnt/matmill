@@ -113,8 +113,7 @@ namespace Matmill
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
         private const double ENGAGEMENT_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
-        private const double SLICE_LEADIN_ANGLE = 3 * Math.PI / 180;
-        private const double SLICE_LEADOUT_ANGLE = 0.5 * Math.PI / 180;
+
 
         private readonly Polyline _outline;
         private readonly Polyline[] _islands;
@@ -131,12 +130,16 @@ namespace Matmill
         private RotationDirection _dir = RotationDirection.CW;
         private bool _should_smooth_chords = false;
         private bool _should_emit_debug_mat = false;
+        private double _slice_leadin_angle = 3 * Math.PI / 180;
+        private double _slice_leadout_angle = 0.5 * Math.PI / 180;
 
         public double Cutter_d                                    { set { _cutter_r = value / 2.0;}}
         public double General_tolerance                           { set { _general_tolerance = value; } }
         public double Margin                                      { set { _margin = value; } }
         public double Max_engagement                              { set { _max_engagement = value; } }
         public double Min_engagement                              { set { _min_engagement = value; } }
+        public double Slice_leadin_angle                          { set { _slice_leadin_angle = value; } }
+        public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }
         public double Segmented_slice_engagement_derating_k       { set { _segmented_slice_engagement_derating_k = value; } }
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
@@ -517,17 +520,17 @@ namespace Matmill
                 // discard slice if outside the specified min engagement
                 if (candidate.Max_engagement < _min_engagement) return;
 
-                // if last slice was a root slice, adjust root slice startpoint to remove extra travel and 
+                // if last slice was a root slice, adjust root slice startpoint to remove extra travel and
                 // append leadout to the candindate. leadin is not needed, since join with root will be exact
                 // otherwise append both leadin and leadout
                 if (last_slice.Parent == null)
                 {
                     last_slice.Change_startpoint(candidate.Start);
-                    candidate.Append_leadin_and_leadout(0, SLICE_LEADOUT_ANGLE);                    
+                    candidate.Append_leadin_and_leadout(0, _slice_leadout_angle);
                 }
                 else
                 {
-                    candidate.Append_leadin_and_leadout(SLICE_LEADIN_ANGLE, SLICE_LEADOUT_ANGLE);
+                    candidate.Append_leadin_and_leadout(_slice_leadin_angle, _slice_leadout_angle);
                 }
 
                 // generate branch entry after finding the first valid slice (before populating ready slices)

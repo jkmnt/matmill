@@ -56,13 +56,12 @@ namespace Trochopock
         protected CBValue<double> _final_depth_increment;
         protected CBValue<double> _stepover;
         protected CBValue<double> _target_depth;
-		protected CBValue<LeadMoveInfo> _leadin;
+        protected CBValue<LeadMoveInfo> _leadin;
         protected CBValue<Matrix4x4F> _transform;
         protected double _chord_feedrate = 0;
         protected double _spiral_feedrate = 0;
 
         protected double _min_stepover_percentage = 0.9;
-        protected double _segmented_slice_derating = 0.5;
         protected bool _may_return_to_base = true;
         protected bool _should_smooth_chords = false;
         protected bool _should_draw_chords = false;
@@ -70,33 +69,33 @@ namespace Trochopock
         //--- invisible and non-serializable properties
 
         [XmlIgnore, Browsable(false)]
-		public override string MOPTypeName
-		{
-			get { return "TrochoPock"; }
-		}
+        public override string MOPTypeName
+        {
+            get { return "TrochoPock"; }
+        }
 
         [XmlIgnore, Browsable(false)]
         public Image ActiveIconImage
         {
-        	get { return resources.cam_trochopock1;}
+            get { return resources.cam_trochopock1;}
         }
 
         [XmlIgnore, Browsable(false)]
         public string ActiveIconKey
         {
-        	get { return "cam_trochopock1"; }
+            get { return "cam_trochopock1"; }
         }
 
         [XmlIgnore, Browsable(false)]
         public Image InactiveIconImage
         {
-        	get { return resources.cam_trochopock0;}
+            get { return resources.cam_trochopock0;}
         }
 
         [XmlIgnore, Browsable(false)]
         public string InactiveIconKey
         {
-        	get { return "cam_trochopock0"; }
+            get { return "cam_trochopock0"; }
         }
 
         //--- hidden base parameters
@@ -111,8 +110,8 @@ namespace Trochopock
         [XmlIgnore, Browsable(false)]
         public new CBValue<Matrix4x4F> Transform
         {
-        	get { return this._transform; }
-        	set { }
+            get { return this._transform; }
+            set { }
         }
 
         //--- visible parameters which may be styled
@@ -120,51 +119,51 @@ namespace Trochopock
         [CBKeyValue, Category("Step Over"), DefaultValue(typeof(CBValue<double>), "Default"), Description("The cut is increased by this amount each step, expressed as a decimal (0-1.0) of the cutter width."), DisplayName("StepOver")]
         public CBValue<double> StepOver
         {
-        	get { return this._stepover; }
-        	set { this._stepover = value; }
+            get { return this._stepover; }
+            set { this._stepover = value; }
         }
 
         [CBKeyValue, Category("Cutting Depth"), DefaultValue(typeof(CBValue<double>), "Default"), Description("Depth increment of each machining pass."), DisplayName("Depth Increment")]
         public CBValue<double> DepthIncrement
         {
-        	get	{ return this._depth_increment; }
-        	set	{ this._depth_increment = value; }
+            get { return this._depth_increment; }
+            set { this._depth_increment = value; }
         }
 
         [Category("Cutting Depth"), DefaultValue(typeof(CBValue<double>), "Default"), Description("The depth increment of the final machining pass."), DisplayName("Final Depth Increment")]
         public CBValue<double> FinalDepthIncrement
         {
-        	get { return this._final_depth_increment; }
-        	set { this._final_depth_increment = value; }
+            get { return this._final_depth_increment; }
+            set { this._final_depth_increment = value; }
         }
 
         [Category("Options"), DefaultValue(typeof(CBValue<MillingDirectionOptions>), "Default"), Description("Controls the direction the cutter moves around the toolpath.\r\nConventional or Climb milling supported."), DisplayName("Milling Direction")]
         public CBValue<MillingDirectionOptions> MillingDirection
         {
-        	get { return this._milling_direction; }
-        	set { this._milling_direction = value; }
+            get { return this._milling_direction; }
+            set { this._milling_direction = value; }
 
         }
 
         [Category("Options"), DefaultValue(typeof(CBValue<CutOrderingOption>), "Default"), Description("Controls whether to cut to depth first or all cuts on this level first."), DisplayName("Cut Ordering")]
         public CBValue<CutOrderingOption> CutOrdering
         {
-        	get { return this._cut_ordering; }
-        	set { this._cut_ordering = value; }
+            get { return this._cut_ordering; }
+            set { this._cut_ordering = value; }
         }
 
         [CBKeyValue, Category("Cutting Depth"), DefaultValue(typeof(CBValue<double>), "Default"), Description("Final depth of the machining operation."), DisplayName("Target Depth")]
         public CBValue<double> TargetDepth
         {
-        	get { return this._target_depth; }
-        	set { this._target_depth = value; }
+            get { return this._target_depth; }
+            set { this._target_depth = value; }
         }
 
         [Category("Lead In/Out"), DefaultValue(typeof(CBValue<LeadMoveInfo>), "Default"), Description("Defines the lead in move as the tool enters the stock."), DisplayName("Lead In Move")]
         public CBValue<LeadMoveInfo> LeadInMove
         {
-        	get { return this._leadin; }
-        	set { this._leadin = value; }
+            get { return this._leadin; }
+            set { this._leadin = value; }
         }
 
 
@@ -180,7 +179,7 @@ namespace Trochopock
         ]
         public double Chord_feedrate
         {
-            get	{ return _chord_feedrate; }
+            get { return _chord_feedrate; }
             set { _chord_feedrate = value; }
         }
 
@@ -193,7 +192,7 @@ namespace Trochopock
         ]
         public double Spiral_feedrate
         {
-            get	{ return _spiral_feedrate; }
+            get { return _spiral_feedrate; }
             set { _spiral_feedrate = value; }
         }
 
@@ -204,10 +203,10 @@ namespace Trochopock
             Description("Minimum allowed stepover as a percentage of the nominal stepover (0.1 - 0.9).\nLarger values may leave uncut corners"),
             DisplayName("Minimum Stepover")
         ]
-		public double Min_stepover
-		{
-			get { return this._min_stepover_percentage; }
-			set
+        public double Min_stepover
+        {
+            get { return this._min_stepover_percentage; }
+            set
             {
                 this._min_stepover_percentage = value;
 
@@ -217,20 +216,7 @@ namespace Trochopock
                     redraw_parameters();
                 }
             }
-		}
-
-        [
-            CBAdvancedValue,
-            Category("Step Over"),
-            DefaultValue(0.5),
-            Description("Derating factor for the segmented slices to reduce cutter stress (0 - 1)"),
-            DisplayName("Segmented Slices Derating")
-        ]
-		public double Segmented_slice_derating
-		{
-			get { return this._segmented_slice_derating; }
-			set { this._segmented_slice_derating = value; }
-		}
+        }
 
         [
             CBAdvancedValue,
@@ -238,11 +224,11 @@ namespace Trochopock
             Description("Try to return to the start point without rapids (if required)"),
             DisplayName("Return To Base")
         ]
-		public bool May_return_to_base
-		{
-			get { return this._may_return_to_base; }
-			set { this._may_return_to_base = value; }
-		}
+        public bool May_return_to_base
+        {
+            get { return this._may_return_to_base; }
+            set { this._may_return_to_base = value; }
+        }
 
         [
             CBAdvancedValue,
@@ -252,11 +238,11 @@ namespace Trochopock
                         "Not applied to the the mixed milling direction."),
             DisplayName("Smooth chords")
         ]
-		public bool Should_smooth_chords
-		{
-			get { return this._should_smooth_chords; }
-			set { this._should_smooth_chords = value; }
-		}
+        public bool Should_smooth_chords
+        {
+            get { return this._should_smooth_chords; }
+            set { this._should_smooth_chords = value; }
+        }
 
         [
             CBAdvancedValue,
@@ -278,10 +264,10 @@ namespace Trochopock
             DisplayName("Plugin Version"),
             Description("https://github.com/jkmnt/matmill\njkmnt at git@firewood.fastmail.com")
         ]
-		public string Version
-		{
+        public string Version
+        {
             get { return Assembly.GetExecutingAssembly().GetName().Version.ToString(); }
-		}
+        }
 
         public override bool NeedsRebuild
         {
@@ -393,7 +379,6 @@ namespace Trochopock
             gen.Cutter_d = base.ToolDiameter.Cached;
             gen.Max_engagement = base.ToolDiameter.Cached * _stepover.Cached;
             gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
-            gen.Segmented_slice_engagement_derating_k = _segmented_slice_derating;
 
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
             gen.Margin = base.RoughingClearance.Cached;
@@ -441,14 +426,14 @@ namespace Trochopock
                     }
 
                     PolylineToMesh mesh = new PolylineToMesh(p);
-    				Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
-    				surface.ApplyTransformation(Matrix4x4F.Translation(0.0, 0.0, bottom - 0.001));
-    				surfaces.Add(surface);
+                    Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
+                    surface.ApplyTransformation(Matrix4x4F.Translation(0.0, 0.0, bottom - 0.001));
+                    surfaces.Add(surface);
                 }
             }
 
             return surfaces;
-		}
+        }
 
         private List<Polyline> calc_visual_rapids(List<Toolpath> toolpaths)
         {
@@ -490,7 +475,7 @@ namespace Trochopock
             }
 
             return rapids;
-		}
+        }
 
         private void print_toolpath_stats(List<Toolpath> toolpaths, List<Polyline> rapids)
         {
@@ -579,15 +564,15 @@ namespace Trochopock
                                                   cut_dur + rapids_dur);
         }
 
-		protected override void _GenerateToolpathsWorker()
-		{
-			try
-			{
+        protected override void _GenerateToolpathsWorker()
+        {
+            try
+            {
                 _trajectories.Clear();
                 _toolpaths.Clear();
                 _visual_cut_widths.Clear();
                 _visual_rapids.Clear();
-				GC.Collect();
+                GC.Collect();
 
                 if (base.ToolDiameter.Cached == 0)
                 {
@@ -604,8 +589,8 @@ namespace Trochopock
                 }
 
                 // XXX: is it needed ?
-				base.UpdateGeometryExtrema(this._CADFile);
-				this._CADFile.MachiningOptions.UpdateGeometryExtrema(this._CADFile);
+                base.UpdateGeometryExtrema(this._CADFile);
+                this._CADFile.MachiningOptions.UpdateGeometryExtrema(this._CADFile);
                 ShapeList shapes = new ShapeList();
                 shapes.ApplyTransformations = true;
                 shapes.AddEntities(this._CADFile, base.PrimitiveIds);
@@ -647,17 +632,17 @@ namespace Trochopock
                 {
                     this.MachineOpStatus = MachineOpStatus.OK;
                 }
-			}
-			catch (Exception ex)
-			{
-				this.MachineOpStatus = MachineOpStatus.Errors;
-				ThisApplication.HandleException(ex);
-			}
-			finally
-			{
-				this._GenerateToolpathsFinal();
-			}
-		}
+            }
+            catch (Exception ex)
+            {
+                this.MachineOpStatus = MachineOpStatus.Errors;
+                ThisApplication.HandleException(ex);
+            }
+            finally
+            {
+                this._GenerateToolpathsFinal();
+            }
+        }
 
         private void emit_toolpath(MachineOpToGCode gcg, Toolpath path)
         {
@@ -854,7 +839,7 @@ namespace Trochopock
         public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
         {
             // XXX: what this line for ?
-        	this._CADFile = iv.CADFile;
+            this._CADFile = iv.CADFile;
 
             if (_trajectories.Count == 0) return;
 
@@ -868,7 +853,7 @@ namespace Trochopock
                 paint_rapids(d3d);
 
             if (selected)
-        		base.PaintStartPoint(iv, d3d);
+                base.PaintStartPoint(iv, d3d);
         }
 
         public override MachineOp Clone()
@@ -889,7 +874,6 @@ namespace Trochopock
             Chord_feedrate = src.Chord_feedrate;
             Spiral_feedrate = src.Spiral_feedrate;
             Min_stepover = src.Min_stepover;
-            Segmented_slice_derating = src.Segmented_slice_derating;
             May_return_to_base = src.May_return_to_base;
             Should_smooth_chords = src.Should_smooth_chords;
             Should_draw_chords = src.Should_draw_chords;

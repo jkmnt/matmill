@@ -35,30 +35,30 @@ namespace Trochopock
     {
         public void log(string s, params object[] args)
         {
-            Host.log(s, args);            
+            Host.log(s, args);
         }
         public void warn(string s, params object[] args)
         {
-            Host.warn(s, args);                
+            Host.warn(s, args);
         }
         public void err(string s, params object[] args)
         {
-            Host.err(s, args);            
+            Host.err(s, args);
         }
     }
 
     public static class Trochopock_plug
     {
-        const string plug_text_name = "Trochoidal Pocket";                
+        const string plug_text_name = "Trochoidal Pocket";
 
         private static void mop_onclick(object sender, EventArgs ars)
         {
-			if (!PolylineUtils.ConfirmSelected(CamBamUI.MainUI.ActiveView))
-			{
-				return;
-			}
+            if (!PolylineUtils.ConfirmSelected(CamBamUI.MainUI.ActiveView))
+            {
+                return;
+            }
 
-			Mop_matmill mop = new Mop_matmill(CamBamUI.MainUI.ActiveView.CADFile, CamBamUI.MainUI.ActiveView.Selection);
+            Mop_matmill mop = new Mop_matmill(CamBamUI.MainUI.ActiveView.CADFile, CamBamUI.MainUI.ActiveView.Selection);
             CamBamUI.MainUI.InsertMOP(mop);
         }
 
@@ -157,13 +157,13 @@ namespace Trochopock
             ThisApplication.TopWindow.Shown += on_window_shown;
 
             if (CADFile.ExtraTypes == null)
-				CADFile.ExtraTypes = new List<Type>();
-			CADFile.ExtraTypes.Add(typeof(Mop_matmill));
+                CADFile.ExtraTypes = new List<Type>();
+            CADFile.ExtraTypes.Add(typeof(Mop_matmill));
 
-			Mop_matmill o = new Mop_matmill();
-			XmlSerializer xmlSerializer = new XmlSerializer(typeof(Mop_matmill));
-			MemoryStream stream = new MemoryStream();
-			xmlSerializer.Serialize(stream, o);            
+            Mop_matmill o = new Mop_matmill();
+            XmlSerializer xmlSerializer = new XmlSerializer(typeof(Mop_matmill));
+            MemoryStream stream = new MemoryStream();
+            xmlSerializer.Serialize(stream, o);
         }
     }
 }
