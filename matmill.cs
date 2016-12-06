@@ -113,6 +113,8 @@ namespace Matmill
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
         private const double ENGAGEMENT_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
+        private const double SLICE_LEADIN_ANGLE = 3 * Math.PI / 180;
+        private const double SLICE_LEADOUT_ANGLE = 0.5 * Math.PI / 180;
 
         private readonly Polyline _outline;
         private readonly Polyline[] _islands;
@@ -515,9 +517,18 @@ namespace Matmill
                 // discard slice if outside the specified min engagement
                 if (candidate.Max_engagement < _min_engagement) return;
 
-                // last slice was a root slice, change its startpoint to remove extra travel
+                // if last slice was a root slice, adjust root slice startpoint to remove extra travel and 
+                // append leadout to the candindate. leadin is not needed, since join with root will be exact
+                // otherwise append both leadin and leadout
                 if (last_slice.Parent == null)
+                {
                     last_slice.Change_startpoint(candidate.Start);
+                    candidate.Append_leadin_and_leadout(0, SLICE_LEADOUT_ANGLE);                    
+                }
+                else
+                {
+                    candidate.Append_leadin_and_leadout(SLICE_LEADIN_ANGLE, SLICE_LEADOUT_ANGLE);
+                }
 
                 // generate branch entry after finding the first valid slice (before populating ready slices)
                 if (branch.Slices.Count == 0)

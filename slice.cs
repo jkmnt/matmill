@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 
 using CamBam.Geom;
+using Geom;
 
 namespace Matmill
 {
@@ -27,11 +28,9 @@ namespace Matmill
         public Point2F End              { get { return _segments[_segments.Count - 1].P2; } }
         public RotationDirection Dir    { get { return _segments[0].Direction; } }
 
-        static private double angle_between_vectors(Vector2F v0, Vector2F v1, RotationDirection dir)
+        static private double angle_between_vectors(Vector2d v0, Vector2d v1, RotationDirection dir)
         {
-            double angle = Math.Atan2(Vector2F.Determinant(v0, v1), Vector2F.DotProduct(v0, v1));
-            if (angle < 0)
-                angle += 2.0 * Math.PI;
+            double angle = v0.Ccw_angle_to(v1);
             return (dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
         }
 
@@ -49,8 +48,8 @@ namespace Matmill
 
             // we're interested in cutter head point, so choose more advanced point in mill direction
             Point2F cut_head;
-            Vector2F v1 = new Vector2F(parent_wall.Center, insects.p1);
-            Vector2F v2 = new Vector2F(parent_wall.Center, insects.p2);
+            Vector2d v1 = new Vector2d(parent_wall.Center, insects.p1);
+            Vector2d v2 = new Vector2d(parent_wall.Center, insects.p2);
             if (angle_between_vectors(v1, v2, dir) < Math.PI)
                 cut_head = insects.p2;
             else
@@ -228,9 +227,9 @@ namespace Matmill
                     continue;
 
                 // sort insects by sweep (already sorted for single, may be unsorted for the double)
-                Vector2F v_p1 = new Vector2F(arc.Center, arc.P1);
-                Vector2F v_ins1 = new Vector2F(arc.Center, secant.p1);
-                Vector2F v_ins2 = new Vector2F(arc.Center, secant.p2);
+                Vector2d v_p1 = new Vector2d(arc.Center, arc.P1);
+                Vector2d v_ins1 = new Vector2d(arc.Center, secant.p1);
+                Vector2d v_ins2 = new Vector2d(arc.Center, secant.p2);
 
                 double sweep = angle_between_vectors(v_ins1, v_ins2, arc.Direction);
 
@@ -288,16 +287,37 @@ namespace Matmill
             _max_engagement = Math.Max(max_eng, _entry_engagement);
         }
 
+        public void Append_leadin_and_leadout(double leadin_angle, double leadout_angle)
+        {
+            RotationDirection dir = Dir;
+            Point2F start = Start;
+            Point2F end = End;
+            Point2F center = Center;
+
+            Vector2d v1 = new Vector2d(center, start).Rotated(dir == RotationDirection.CCW ? -leadin_angle : leadin_angle);
+            Vector2d v2 = new Vector2d(center, end).Rotated(dir == RotationDirection.CCW ? leadout_angle : -leadout_angle);
+
+            if (_segments.Count == 1)   // common case
+            {
+                _segments[0] = new Arc2F(center, center + v1.Point, center + v2.Point, dir);
+            }
+            else
+            {
+                _segments[0] = new Arc2F(center, center + v1.Point, _segments[0].P2, dir);
+                _segments[_segments.Count - 1] = new Arc2F(center, _segments[_segments.Count - 1].P1, center + v2.Point, dir);
+            }
+        }
+
         private void create_initial_slice(Point2F center, Point2F p1, RotationDirection dir)
         {
-            double radius = p1.DistanceTo(center);
             double seg_sweep = dir == RotationDirection.CW ? -2 * Math.PI / 3 : 2 * Math.PI / 3;
-            double v1_angle = new Vector2F(center, p1).Angle;
-            double v2_angle = v1_angle + seg_sweep;
-            double v3_angle = v1_angle + 2 * seg_sweep;
 
-            Point2F p2 = new Point2F(center.X + radius * Math.Cos(v2_angle), center.Y + radius * Math.Sin(v2_angle));
-            Point2F p3 = new Point2F(center.X + radius * Math.Cos(v3_angle), center.Y + radius * Math.Sin(v3_angle));
+            Vector2d v1 = new Vector2d(center, p1);
+            Vector2d v2 = v1.Rotated(seg_sweep);
+            Vector2d v3 = v1.Rotated(2 * seg_sweep);
+
+            Point2F p2 = center + (Point2F)v2;
+            Point2F p3 = center + (Point2F)v3;
 
             _segments.Clear();
 

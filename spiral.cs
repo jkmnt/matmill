@@ -25,7 +25,7 @@ namespace Matmill
         public static List<Biarc2d> Gen_archimedean_spiral(Point2F center, Point2F end, double spacing, RotationDirection dir)
         {
             Vector2d v_end = new Vector2d(center, end);
-            double theta_end = Math.Atan2(v_end.Y, v_end.X);
+            double theta_end = v_end.Angle;
 
             double r_max = center.DistanceTo(end);
             double a = spacing / (2 * Math.PI);
@@ -45,7 +45,7 @@ namespace Matmill
 
             for (int sector = 0; sector < nsectors; sector++)
             {
-                double theta = sector * theta_per_sector;                
+                double theta = sector * theta_per_sector;
                 double r = a * theta;
                 double sin = Math.Sin(theta + theta_offset);
                 double cos = Math.Cos(theta + theta_offset);
@@ -54,7 +54,7 @@ namespace Matmill
                 Vector2d t2 = new Vector2d(a * cos - r * sin, a * sin + r * cos).Unit();
 
                 if (dir == RotationDirection.CW)
-                    t2 = t2.Inverse();
+                    t2 = t2.Inverted();
 
                 if (sector > 0)
                     spiral.Add(new Biarc2d(p1, t1, p2, t2));
@@ -65,7 +65,7 @@ namespace Matmill
 
             Vector2d t_end = v_end.Normal().Unit();
             if (dir == RotationDirection.CW)
-                t_end = t_end.Inverse();
+                t_end = t_end.Inverted();
 
             spiral.Add(new Biarc2d(p1, t1, end, t_end));
 

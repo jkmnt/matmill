@@ -13,6 +13,25 @@ namespace Geom
             get { return Math.Sqrt(X * X + Y * Y); }
         }
 
+        public double Angle
+        {
+            get { return Math.Atan2(Y, X); }
+        }
+
+        public double Ccw_angle
+        {
+            get
+            {
+                double angle = this.Angle;
+                return angle >= 0 ? angle : angle + 2.0 * Math.PI;
+            }
+        }
+
+        public Point2F Point
+        {
+            get { return (Point2F)this; }
+        }
+
         public Vector2d(double x, double y)
         {
             X = x;
@@ -42,7 +61,7 @@ namespace Geom
             return new Vector2d(-Y, X);
         }
 
-        public Vector2d Inverse()
+        public Vector2d Inverted()
         {
             return new Vector2d(-X, -Y);
         }
@@ -53,9 +72,28 @@ namespace Geom
             return new Vector2d(X / mag, Y / mag);
         }
 
+        public Vector2d Rotated(double theta)
+        {
+            double x = X * Math.Cos(theta) - Y * Math.Sin(theta);
+            double y = X * Math.Sin(theta) + Y * Math.Cos(theta);
+
+            return new Vector2d(x, y);
+        }
+
         public double Det(Vector2d b)
         {
             return X * b.Y - Y * b.X;
+        }
+
+        public double Angle_to(Vector2d b)
+        {
+            return Math.Atan2(this.Det(b), this * b);
+        }
+
+        public double Ccw_angle_to(Vector2d b)
+        {
+            double angle = this.Angle_to(b);
+            return angle >= 0 ? angle : angle + 2.0 * Math.PI;
         }
 
         public static explicit operator Point2F(Vector2d v)
@@ -137,7 +175,7 @@ namespace Geom
                 d2 = v * v / d2_denom;
 
                 if (d2_denom == 0)  // v perpendicular to tangents
-                    return p1 + (Point2F)(v * 0.5);
+                    return p1 + (v * 0.5).Point;
             }
             else    // normal case
             {
@@ -145,7 +183,7 @@ namespace Geom
                 d2 = d2_num / d2_denom;
             }
 
-            return (p1 + p2 + (Point2F)(d2 * (t1 - t2))) * 0.5;
+            return (p1 + p2 + (d2 * (t1 - t2)).Point) * 0.5;
         }
 
         private static object[] calc_arcs(Point2F p1, Vector2d t1, Point2F p2, Vector2d t2, Point2F pm)
@@ -162,7 +200,7 @@ namespace Geom
             }
             else
             {
-                Point2F c1 = p1 + (Point2F)((pm_minus_p1 * pm_minus_p1) / c1_denom * n1);
+                Point2F c1 = p1 + (pm_minus_p1 * pm_minus_p1 / c1_denom * n1).Point;
                 RotationDirection dir1 = new Vector2d(p1 - c1) * n1 > 0 ? RotationDirection.CW : RotationDirection.CCW;
                 segs[0] = new Arc2F(c1, p1, pm, dir1);
             }
@@ -176,7 +214,7 @@ namespace Geom
             }
             else
             {
-                Point2F c2 = p2 + (Point2F)((pm_minus_p2 * pm_minus_p2) / c2_denom * n2);
+                Point2F c2 = p2 + (pm_minus_p2 * pm_minus_p2 / c2_denom * n2).Point;
                 RotationDirection dir2 = new Vector2d(p2 - c2) * n2 > 0 ? RotationDirection.CW : RotationDirection.CCW;
                 segs[1] = new Arc2F(c2, pm, p2, dir2);
             }
