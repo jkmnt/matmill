@@ -774,6 +774,12 @@ namespace Trochopock
                     lcol = chord_color;
                 }
 
+                if (p.Item_type == Pocket_path_item_type.DEBUG_MEDIAL_AXIS)
+                {
+                    acol = Color.Cyan;
+                    lcol = Color.Cyan;
+                }
+
                 Matrix4x4F mx = new Matrix4x4F();
                 mx.Translate(0.0, 0.0, path.Bottom);
                 if (Transform.Cached != null)

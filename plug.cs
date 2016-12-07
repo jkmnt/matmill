@@ -7,7 +7,6 @@ using System.IO;
 using CamBam;
 using CamBam.UI;
 using CamBam.CAD;
-using Matmill;
 
 namespace Trochopock
 {

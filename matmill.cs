@@ -19,7 +19,7 @@ namespace Matmill
         BRANCH_ENTRY,
         SLICE_SHORTCUT,
         RETURN_TO_BASE,
-        DEBUG_MAT,
+        DEBUG_MEDIAL_AXIS,
     }
 
     public interface ILogger
@@ -113,7 +113,9 @@ namespace Matmill
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
         private const double ENGAGEMENT_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
+        private const double FINAL_ALLOWED_ENGAGEMENT_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
 
+        private bool DROP_BRANCH_ON_OVERSHOOT = false;
 
         private readonly Polyline _outline;
         private readonly Polyline[] _islands;
@@ -129,7 +131,7 @@ namespace Matmill
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
         private bool _should_smooth_chords = false;
-        private bool _should_emit_debug_mat = false;
+        private bool _should_emit_debug_medial_axis = true;
         private double _slice_leadin_angle = 3 * Math.PI / 180;
         private double _slice_leadout_angle = 0.5 * Math.PI / 180;
 
@@ -295,11 +297,54 @@ namespace Matmill
             foreach (Slice candidate in candidates)
             {
                 double dist = candidate.Center.DistanceTo(pt);
+
                 if (dist < min_dist)
                 {
                     min_dist = dist;
                     best_candidate = candidate;
                 }
+            }
+
+            return best_candidate;
+        }
+
+        // XXX: bad choicer !
+        private Slice choose_parent(Branch branch, Point2F pt, double radius)
+        {
+            Slice best_candidate = null;
+
+            double min_dist = double.MaxValue;
+
+            List<Slice> candidates = branch.Get_upstream_roadblocks();
+
+            Slice s;
+            foreach (Slice candidate in candidates)
+            {
+                s = new Slice(candidate, pt, radius, _dir, _cutter_r, null);
+
+                if (s.Max_engagement > _max_engagement * 2)   // outside of max engagement, toss candidate
+                    continue;
+
+                if (s.Max_engagement == 0)
+                {
+                     if (s.Dist > 0)  // slices are spaced too far away, toss candidate
+                         continue;
+
+                     // XXX: one inside another may be a wrong decision !
+                     // s.Dist <= 0, slices are one inside another or coincident, ok
+                }
+
+                double dist = Math.Abs(s.Dist);
+                if (dist < min_dist)
+                {
+                    min_dist = dist;
+                    best_candidate = candidate;
+                }
+            }
+
+            if (best_candidate == null)
+            {
+                Logger.log("no candidate found");
             }
 
             return best_candidate;
@@ -427,7 +472,8 @@ namespace Matmill
             if (branch.Parent != null)
             {
                 // non-initial slice
-                parent_slice = find_nearest_slice(branch, start_pt);
+                //parent_slice = find_nearest_slice(branch, start_pt);
+                parent_slice = choose_parent(branch, start_pt, start_radius);
                 if (parent_slice == null)
                 {
                     Logger.warn("failed to attach branch");
@@ -508,17 +554,27 @@ namespace Matmill
 
                 if (candidate == null) return;
 
-                double err = (candidate.Max_engagement - _max_engagement) / _max_engagement;
-
-                // discard slice if outside a little relaxed overshoot
-                if (err > ENGAGEMENT_TOLERANCE_PERCENTAGE * 10)
-                {
-                    Logger.err("failed to create slice within stepover limit. stopping slicing the branch");
-                    return;
-                }
-
                 // discard slice if outside the specified min engagement
-                if (candidate.Max_engagement < _min_engagement) return;
+                if (candidate.Max_engagement < _min_engagement)
+                    return;
+
+                double err = (candidate.Max_engagement - _max_engagement) / _max_engagement;
+                // discard slice if outside the final allowed percentage
+                if (err > FINAL_ALLOWED_ENGAGEMENT_OVERSHOOT_PERCENTAGE)
+                {
+                    if (DROP_BRANCH_ON_OVERSHOOT)
+                    {
+                        Logger.warn("failed to create slice within stepover limit. stopping slicing the branch");
+                        return;
+                    }
+                    else
+                    {
+                        Logger.warn("forced to produce slice with stepover = {0}. It's a {1}% more than the normal stepover. Please inspect slice at {2}.",
+                                                             candidate.Max_engagement / (_cutter_r * 2),
+                                                             err * 100,
+                                                             candidate.Start.ToString());
+                    }
+                }
 
                 // if last slice was a root slice, adjust root slice startpoint to remove extra travel and
                 // append leadout to the candindate. leadin is not needed, since join with root will be exact
@@ -929,9 +985,9 @@ namespace Matmill
             {
                 Branch b = traverse[bidx];
 
-                if (_should_emit_debug_mat)
+                if (_should_emit_debug_medial_axis)
                 {
-                    Pocket_path_item mat = new Pocket_path_item(Pocket_path_item_type.DEBUG_MAT);
+                    Pocket_path_item mat = new Pocket_path_item(Pocket_path_item_type.DEBUG_MEDIAL_AXIS);
                     mat.Add(b.Curve);
                     path.Add(mat);
                 }
