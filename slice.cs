@@ -37,8 +37,10 @@ namespace Matmill
             return (dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
         }
 
-        static private double calc_ted(Circle2F parent_wall, Circle2F this_wall, Point2F tool_center, double tool_r, RotationDirection dir)
+        private double calc_ted(Point2F tool_center, double tool_r)
         {
+            Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + tool_r);
+
             // find the points tool touching parent wall
             Circle2F cut_circle = new Circle2F(tool_center, tool_r);
             Line2F insects = cut_circle.CircleIntersect(parent_wall);
@@ -50,33 +52,24 @@ namespace Matmill
             }
 
             // we're interested in tool head point, so choose more advanced point in mill direction
-            Point2F cut_head;
-            Vector2d v1 = new Vector2d(parent_wall.Center, insects.p1);
-            Vector2d v2 = new Vector2d(parent_wall.Center, insects.p2);
-            if (angle_between_vectors(v1, v2, dir) < Math.PI)
-                cut_head = insects.p2;
-            else
-                cut_head = insects.p1;
 
-            // project headpoint to the tail ray and find TED
-            Vector2d cut_tail_ray = new Vector2d(this_wall.Center, tool_center);
-            Vector2d cut_head_ray = new Vector2d(this_wall.Center, cut_head);
+            Vector2d v1 = new Vector2d(_parent.Center, insects.p1);
+            Vector2d v_parent_to_tool_center = new Vector2d(_parent.Center, tool_center);
+            Point2F cut_head = v_parent_to_tool_center.Det(v1) * (int)this.Dir > 0 ? insects.p1 : insects.p2;
 
-            double ted = this_wall.Center.DistanceTo(tool_center) + tool_r - cut_head_ray * cut_tail_ray.Unit();
+            // project headpoint to the center find TED
+            Vector2d v_me_to_tool_center = new Vector2d(this.Center, tool_center);
+            Vector2d v_me_to_cut_head = new Vector2d(this.Center, cut_head);
 
-            if (ted < 0)
-                ted = 0;
-
-            return ted;
+            double ted = this.Radius + tool_r - v_me_to_cut_head * v_me_to_tool_center.Unit();
+            return ted > 0 ? ted : 0;
         }
 
         private void calc_teds(double tool_r)
         {
-            RotationDirection dir = _segments[0].Direction;
-
             // expand both slices to form walls
             Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + tool_r);
-            Circle2F this_wall = new Circle2F(_ball.Center, _ball.Radius + tool_r);
+            Circle2F this_wall = new Circle2F(this.Center, this.Radius + tool_r);
 
             // find the point of cut start (intersection of walls)
             Line2F wall_insects = parent_wall.CircleIntersect(this_wall);
@@ -87,16 +80,16 @@ namespace Matmill
                 return;
             }
 
-            Vector2d v_move = new Vector2d(_parent.Center, _ball.Center);
+            Vector2d v_move = new Vector2d(_parent.Center, this.Center);
             Vector2d v1 = new Vector2d(_parent.Center, wall_insects.p1);
-            Point2F cut_tail = Math.Sign(v_move.Det(v1)) != (int)dir ? wall_insects.p1 : wall_insects.p2;
-            Vector2d v_tail = new Vector2d(_ball.Center, cut_tail);
+            Point2F cut_tail = v_move.Det(v1) * (int)this.Dir < 0 ? wall_insects.p1 : wall_insects.p2;
+            Vector2d v_tail = new Vector2d(this.Center, cut_tail);
 
-            Point2F entry_tool_center = _ball.Center + (v_tail.Unit() * _ball.Radius).Point;
-            _entry_ted = calc_ted(parent_wall, this_wall, entry_tool_center, tool_r, dir);
+            Point2F entry_tool_center = this.Center + (v_tail.Unit() * this.Radius).Point;
+            _entry_ted = calc_ted(entry_tool_center, tool_r);
 
-            Point2F mid_tool_center = _ball.Center + (v_move.Unit() * _ball.Radius).Point;
-            _mid_ted  = calc_ted(parent_wall, this_wall, mid_tool_center, tool_r, dir);
+            Point2F mid_tool_center = this.Center + (v_move.Unit() * this.Radius).Point;
+            _mid_ted  = calc_ted(mid_tool_center, tool_r);
         }
 
         public void Get_extrema(ref Point2F min, ref Point2F max)
@@ -119,8 +112,8 @@ namespace Matmill
 
         public void Get_ball_extrema(ref Point2F min, ref Point2F max)
         {
-            min = new Point2F(_ball.Center.X - _ball.Radius, _ball.Center.Y - _ball.Radius);
-            max = new Point2F(_ball.Center.X + _ball.Radius, _ball.Center.Y + _ball.Radius);
+            min = new Point2F(this.Center.X - this.Radius, this.Center.Y - this.Radius);
+            max = new Point2F(this.Center.X + this.Radius, this.Center.Y + this.Radius);
         }
 
         public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
@@ -184,7 +177,7 @@ namespace Matmill
                 {
                     // single intersection
                     Point2F splitpt = secant.p1.IsUndefined ? secant.p2 : secant.p1;
-                    if (arc.P1.DistanceTo(s.Ball.Center) < arc.P2.DistanceTo(s.Ball.Center))
+                    if (arc.P1.DistanceTo(s.Center) < arc.P2.DistanceTo(s.Center))
                     {
                         if (splitpt.DistanceTo(arc.P1) < clearance)
                             continue;  // nothing to remove
@@ -226,6 +219,7 @@ namespace Matmill
                 Vector2d v_ins1 = new Vector2d(arc.Center, secant.p1);
                 Vector2d v_ins2 = new Vector2d(arc.Center, secant.p2);
 
+
                 double sweep = angle_between_vectors(v_ins1, v_ins2, arc.Direction);
 
                 if (angle_between_vectors(v_p1, v_ins1, arc.Direction) > angle_between_vectors(v_p1, v_ins2, arc.Direction))
@@ -238,7 +232,7 @@ namespace Matmill
                 {
                     // ok, a last check - removed arc midpoint should be inside the colliding circle
                     Arc2F check_arc = new Arc2F(arc.Center, secant.p1, secant.p2, arc.Direction);
-                    if (check_arc.Midpoint.DistanceTo(s.Ball.Center) < s.Ball.Radius)
+                    if (check_arc.Midpoint.DistanceTo(s.Center) < s.Ball.Radius)
                     {
                         max_sweep = sweep;
                         max_secant = secant;
@@ -261,18 +255,14 @@ namespace Matmill
 
             // if ends of removed segment are at the same side of direction vector,
             // midpoint is still present, _max_ted is valid and is maximum for sure
-            Vector2d v_move = new Vector2d(_parent.Center, _ball.Center);
+            Vector2d v_move = new Vector2d(_parent.Center, this.Center);
             Vector2d v_removed_p1 = new Vector2d(_parent.Center, max_secant.p1);
             Vector2d v_removed_p2 = new Vector2d(_parent.Center, max_secant.p2);
 
             if (v_move.Det(v_removed_p1) * v_move.Det(v_removed_p2) > 0) return;
 
-            // expand both slices
-            Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + tool_r);
-            Circle2F this_wall = new Circle2F(_ball.Center, _ball.Radius + tool_r);
-
-            double ted_head_end = calc_ted(parent_wall, this_wall, max_secant.p1, tool_r, arc.Direction);
-            double ted_tail_start = calc_ted(parent_wall, this_wall, max_secant.p2, tool_r, arc.Direction);
+            double ted_head_end = calc_ted(max_secant.p1, tool_r);
+            double ted_tail_start = calc_ted(max_secant.p2, tool_r);
 
             double ted = Math.Max(ted_head_end, ted_tail_start);
 
@@ -293,8 +283,8 @@ namespace Matmill
             Point2F end = End;
             Point2F center = Center;
 
-            Vector2d v1 = new Vector2d(center, start).Rotated(dir == RotationDirection.CCW ? -leadin_angle : leadin_angle);
-            Vector2d v2 = new Vector2d(center, end).Rotated(dir == RotationDirection.CCW ? leadout_angle : -leadout_angle);
+            Vector2d v1 = new Vector2d(center, start).Rotated(-(int)dir * leadin_angle);
+            Vector2d v2 = new Vector2d(center, end).Rotated((int)dir * leadout_angle);
 
             if (_segments.Count == 1)   // common case
             {
@@ -307,32 +297,32 @@ namespace Matmill
             }
         }
 
-        private void create_initial_slice(Point2F center, Point2F p1, RotationDirection dir)
+        private void create_arc_circle(Point2F p1, RotationDirection dir)
         {
             double seg_sweep = dir == RotationDirection.CW ? -2 * Math.PI / 3 : 2 * Math.PI / 3;
 
-            Vector2d v1 = new Vector2d(center, p1);
+            Vector2d v1 = new Vector2d(this.Center, p1);
             Vector2d v2 = v1.Rotated(seg_sweep);
             Vector2d v3 = v1.Rotated(2 * seg_sweep);
 
-            Point2F p2 = center + (Point2F)v2;
-            Point2F p3 = center + (Point2F)v3;
+            Point2F p2 = this.Center + (Point2F)v2;
+            Point2F p3 = this.Center + (Point2F)v3;
 
             _segments.Clear();
 
-            _segments.Add(new Arc2F(center, p1, p2, dir));
-            _segments.Add(new Arc2F(center, p2, p3, dir));
-            _segments.Add(new Arc2F(center, p3, p1, dir));
+            _segments.Add(new Arc2F(this.Center, p1, p2, dir));
+            _segments.Add(new Arc2F(this.Center, p2, p3, dir));
+            _segments.Add(new Arc2F(this.Center, p3, p1, dir));
         }
 
         public void Change_startpoint(Point2F p1)
         {
             if (_parent != null)
                 throw new Exception("startpoint may be changed for the root slice only");
-            if (Math.Abs((p1.DistanceTo(Center) - Radius) / Radius) > 0.001)
+            if (Math.Abs((p1.DistanceTo(this.Center) - this.Radius) / this.Radius) > 0.001)
                 throw new Exception("new startpoint is outside the initial circle");
 
-            create_initial_slice(Center, p1, Dir);
+            create_arc_circle(p1, Dir);
         }
 
         public Slice(Slice parent, Point2F center, double radius, RotationDirection dir, double tool_r, Slice last_slice)
@@ -341,7 +331,7 @@ namespace Matmill
             _ball = new Circle2F(center, radius);
             _dist = Point2F.Distance(center, parent.Center);
 
-            double delta_r = radius - parent.Radius;
+            double delta_r = this.Radius - parent.Radius;
             double coarse_ted = _dist + delta_r;
 
             // 1) one ball is inside other, no intersections - TED is 0, mark the distance as negative
@@ -352,22 +342,22 @@ namespace Matmill
                 _dist = -_dist;
                 return;
             }
-            if (_dist >= radius + parent.Radius) return;
+            if (_dist >= this.Radius + parent.Radius) return;
 
             // TED can't be more >= tool diameter, this check prevents fails during the calculation of real angle-based TED
             if (coarse_ted > tool_r * 1.999) return;
 
-            Line2F insects = _parent.Ball.CircleIntersect(_ball);
+            Line2F insects = _parent.Ball.CircleIntersect(this._ball);
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
             {
                 // try to return meaningful result even if CB routine had failed (unlikely)
                 Logger.err("no intersections found there intersections should be (_parent.Ball.CircleIntersect(_ball))");
-                if (_dist <= radius || _dist <= parent.Radius)
+                if (_dist <= this.Radius || _dist <= parent.Radius)
                     _dist = -Math.Abs(_dist);
                 return;
             }
 
-            Vector2d v_move = new Vector2d(_parent.Center, _ball.Center);
+            Vector2d v_move = new Vector2d(_parent.Center, this.Center);
             Vector2d v1 = new Vector2d(_parent.Center, insects.p1);
             RotationDirection default_dir = v_move.Det(v1) > 0 ? RotationDirection.CW : RotationDirection.CCW;
 
@@ -388,9 +378,9 @@ namespace Matmill
 
             Arc2F arc;
             if (default_dir == dir)
-                arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
+                arc = new Arc2F(this.Center, insects.p1, insects.p2, dir);
             else
-                arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
+                arc = new Arc2F(this.Center, insects.p2, insects.p1, dir);
 
             _segments.Add(arc);
 
@@ -408,7 +398,7 @@ namespace Matmill
         public Slice(Point2F center, double radius, RotationDirection dir)
         {
             _ball = new Circle2F(center, radius);
-            create_initial_slice(center, new Point2F(center.X + radius, center.Y), dir);
+            create_arc_circle(new Point2F(center.X + radius, center.Y), dir);
         }
     }
 }

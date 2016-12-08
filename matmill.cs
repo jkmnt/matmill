@@ -86,7 +86,7 @@ namespace Matmill
         private double _tool_r = 1.5;
         private double _margin = 0;
         private double _max_ted = 3.0 * 0.4;
-        private double _min_ted = 3.0 * 0.1;        
+        private double _min_ted = 3.0 * 0.1;
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
         private bool _should_smooth_chords = false;
@@ -100,7 +100,7 @@ namespace Matmill
         public double Max_ted                                     { set { _max_ted = value; } }
         public double Min_ted                                     { set { _min_ted = value; } }
         public double Slice_leadin_angle                          { set { _slice_leadin_angle = value; } }
-        public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }        
+        public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
         public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}
@@ -694,19 +694,19 @@ namespace Matmill
                 if (insects.p1.IsUndefined && insects.p2.IsUndefined)
                 {
                     // no intersections: check if whole path lay inside the circle
-                    if (   a.DistanceTo(s.Ball.Center) < s.Ball.Radius + _general_tolerance
-                        && b.DistanceTo(s.Ball.Center) < s.Ball.Radius + _general_tolerance)
+                    if (   a.DistanceTo(s.Center) < s.Radius + _general_tolerance
+                        && b.DistanceTo(s.Center) < s.Radius + _general_tolerance)
                         return true;
                 }
                 else if (insects.p1.IsUndefined || insects.p2.IsUndefined)
                 {
                     // single intersection. one of the path ends must be inside the circle, otherwise it is a tangent case
                     // and should be ignored
-                    if (a.DistanceTo(s.Ball.Center) < s.Ball.Radius + _general_tolerance)
+                    if (a.DistanceTo(s.Center) < s.Radius + _general_tolerance)
                     {
                         running_collides.Add(s);
                     }
-                    else if (b.DistanceTo(s.Ball.Center) < s.Ball.Radius + _general_tolerance)
+                    else if (b.DistanceTo(s.Center) < s.Radius + _general_tolerance)
                     {
                         ;
                     }
