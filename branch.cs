@@ -5,7 +5,7 @@ using System.Collections.Generic;
 namespace Matmill
 {
     class Branch
-    {        
+    {
         public readonly Curve Curve = new Curve();
         public readonly Branch Parent = null;
         public readonly List<Branch> Children = new List<Branch>();
@@ -60,6 +60,16 @@ namespace Matmill
             }
 
             return candidates;
+        }
+
+        public Slice Get_upstream_slice()
+        {
+            Branch b;
+
+            for (b = this; b != null && b.Slices.Count == 0; b = b.Parent);
+
+            if (b == null) return null;
+            return b.Slices[b.Slices.Count - 1];
         }
 
         // Get all the slices blocking path (meet first) while traveling down the branch

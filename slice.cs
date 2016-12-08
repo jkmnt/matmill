@@ -4,6 +4,9 @@ using System.Collections.Generic;
 using CamBam.Geom;
 using Geom;
 
+// FYI: TED stands for Tool Engagement Depth (or Distance).
+// TODO: define it
+
 namespace Matmill
 {
     class Slice
@@ -12,9 +15,9 @@ namespace Matmill
         private List<Arc2F> _segments = new List<Arc2F>();
         private readonly Slice _parent;
         private readonly double _dist = 0;
-        private double _entry_engagement = 0;
-        private double _mid_engagement = 0;
-        private double _max_engagement = 0;
+        private double _entry_ted = 0;
+        private double _mid_ted = 0;
+        private double _max_ted = 0;
 
         public Circle2F Ball            { get { return _ball; } }
         public double Dist              { get { return _dist; } }
@@ -22,7 +25,7 @@ namespace Matmill
         public Point2F Center           { get { return _ball.Center; } }
         public double Radius            { get { return _ball.Radius; } }
         public Slice Parent             { get { return _parent; } }
-        public double Max_engagement    { get { return _max_engagement; } }
+        public double Max_ted           { get { return _max_ted; } }
         public List<Arc2F> Segments     { get { return _segments; } }
         public Point2F Start            { get { return _segments[0].P1; } }
         public Point2F End              { get { return _segments[_segments.Count - 1].P2; } }
@@ -34,10 +37,10 @@ namespace Matmill
             return (dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
         }
 
-        static private double calc_radial_engagement(Circle2F parent_wall, Circle2F this_wall, Point2F cutter_center, double cutter_r, RotationDirection dir)
+        static private double calc_ted(Circle2F parent_wall, Circle2F this_wall, Point2F tool_center, double tool_r, RotationDirection dir)
         {
-            // find the points cutter touch parent wall
-            Circle2F cut_circle = new Circle2F(cutter_center, cutter_r);
+            // find the points tool touching parent wall
+            Circle2F cut_circle = new Circle2F(tool_center, tool_r);
             Line2F insects = cut_circle.CircleIntersect(parent_wall);
 
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
@@ -46,7 +49,7 @@ namespace Matmill
                 return 0;
             }
 
-            // we're interested in cutter head point, so choose more advanced point in mill direction
+            // we're interested in tool head point, so choose more advanced point in mill direction
             Point2F cut_head;
             Vector2d v1 = new Vector2d(parent_wall.Center, insects.p1);
             Vector2d v2 = new Vector2d(parent_wall.Center, insects.p2);
@@ -55,53 +58,45 @@ namespace Matmill
             else
                 cut_head = insects.p1;
 
-            // project headpoint to the tail ray and find radial engagement
-            Vector2F cut_tail_ray = new Vector2F(this_wall.Center, cutter_center);
-            Vector2F cut_head_ray = new Vector2F(this_wall.Center, cut_head);
+            // project headpoint to the tail ray and find TED
+            Vector2d cut_tail_ray = new Vector2d(this_wall.Center, tool_center);
+            Vector2d cut_head_ray = new Vector2d(this_wall.Center, cut_head);
 
-            double engagement = this_wall.Center.DistanceTo(cutter_center) + cutter_r - Vector2F.DotProduct(cut_head_ray, cut_tail_ray.Unit());
+            double ted = this_wall.Center.DistanceTo(tool_center) + tool_r - cut_head_ray * cut_tail_ray.Unit();
 
-            if (engagement < 0)
-                engagement = 0;
+            if (ted < 0)
+                ted = 0;
 
-            return engagement;
+            return ted;
         }
 
-        private void calc_engagements(double cutter_r)
+        private void calc_teds(double tool_r)
         {
             RotationDirection dir = _segments[0].Direction;
 
             // expand both slices to form walls
-            Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + cutter_r);
-            Circle2F this_wall = new Circle2F(_ball.Center, _ball.Radius + cutter_r);
+            Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + tool_r);
+            Circle2F this_wall = new Circle2F(_ball.Center, _ball.Radius + tool_r);
 
-            Line2F insects = parent_wall.CircleIntersect(this_wall);
+            // find the point of cut start (intersection of walls)
+            Line2F wall_insects = parent_wall.CircleIntersect(this_wall);
 
-            if (insects.p1.IsUndefined || insects.p2.IsUndefined)
+            if (wall_insects.p1.IsUndefined || wall_insects.p2.IsUndefined)
             {
                 Logger.err("no wall intersections #1");
                 return;
             }
 
-            Arc2F test_arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
-            Point2F cut_tail = test_arc.VectorInsideArc(new Vector2F(_parent.Center, _ball.Center)) ? insects.p1 : insects.p2;
-            Line2F tail_ray = new Line2F(_ball.Center, cut_tail);
-            insects = _ball.LineIntersect(tail_ray);
+            Vector2d v_move = new Vector2d(_parent.Center, _ball.Center);
+            Vector2d v1 = new Vector2d(_parent.Center, wall_insects.p1);
+            Point2F cut_tail = Math.Sign(v_move.Det(v1)) != (int)dir ? wall_insects.p1 : wall_insects.p2;
+            Vector2d v_tail = new Vector2d(_ball.Center, cut_tail);
 
-            if (insects.p1.IsUndefined && insects.p2.IsUndefined)
-            {
-                Logger.err("no wall intersections #2");
-                return;
-            }
+            Point2F entry_tool_center = _ball.Center + (v_tail.Unit() * _ball.Radius).Point;
+            _entry_ted = calc_ted(parent_wall, this_wall, entry_tool_center, tool_r, dir);
 
-            // center of initial cut circle
-            Point2F cutter_center;
-
-            cutter_center = insects.p1.IsUndefined ? insects.p2 : insects.p1;
-            _entry_engagement = calc_radial_engagement(parent_wall, this_wall, cutter_center, cutter_r, dir);
-
-            cutter_center = _segments[0].Midpoint;
-            _mid_engagement  = calc_radial_engagement(parent_wall, this_wall, cutter_center, cutter_r, dir);
+            Point2F mid_tool_center = _ball.Center + (v_move.Unit() * _ball.Radius).Point;
+            _mid_ted  = calc_ted(parent_wall, this_wall, mid_tool_center, tool_r, dir);
         }
 
         public void Get_extrema(ref Point2F min, ref Point2F max)
@@ -128,7 +123,7 @@ namespace Matmill
             max = new Point2F(_ball.Center.X + _ball.Radius, _ball.Center.Y + _ball.Radius);
         }
 
-        public void Refine(List<Slice> colliding_slices, double end_clearance, double seg_engagement_derating, double cutter_r)
+        public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
         {
             double clearance = end_clearance;
 
@@ -154,9 +149,9 @@ namespace Matmill
             // us most (removed length of arc is greatest).
 
             // end clearance adjustment:
-            // to guarantee the cutter will never hit the unmilled area while rapiding between segments,
+            // to guarantee the tool will never hit the unmilled area while rapiding between segments,
             // arc will always have original ends, trimming will happen in the middle only.
-            // to prevent the cutter from milling extra small end segments and minimize numeric errors at small tangents,
+            // to prevent the tool from milling extra small end segments and minimize numeric errors at small tangents,
             // original ends would always stick at least for a clearance (chordal) length.
             // i.e. if the point of intersection of arc and colliding circle is closer than clearance to the end,
             // it is moved to clearance distance.
@@ -254,37 +249,41 @@ namespace Matmill
             if (max_sweep == 0)
                 return;
 
-            Arc2F start = new Arc2F(arc.Center, arc.P1, max_secant.p1, arc.Direction);
-            Arc2F removed = new Arc2F(arc.Center, max_secant.p1, max_secant.p2, arc.Direction);
-            Arc2F end = new Arc2F(arc.Center, max_secant.p2, arc.P2, arc.Direction);
+            Arc2F head = new Arc2F(arc.Center, arc.P1, max_secant.p1, arc.Direction);
+            Arc2F tail = new Arc2F(arc.Center, max_secant.p2, arc.P2, arc.Direction);
 
             _segments.Clear();
-            _segments.Add(start);
-            _segments.Add(end);
+            _segments.Add(head);
+            _segments.Add(tail);
 
+            // recalculate max TED accounting for the new endpoints.
+            // this TED is 'virtual' and averaged with previous max_ted to make arcs look more pretty
 
-            // recalculate engagement if base engagement is no longer valid (midpoint vanished with the removed middle segment).
-            // this engagement is 'virtual' and averaged with base to reduce stress on cutter abruptly entering the wall
-            // TODO: is it really needed ?
-            if (! removed.VectorInsideArc(new Vector2F(arc.Center, arc.Midpoint))) return;
+            // if ends of removed segment are at the same side of direction vector,
+            // midpoint is still present, _max_ted is valid and is maximum for sure
+            Vector2d v_move = new Vector2d(_parent.Center, _ball.Center);
+            Vector2d v_removed_p1 = new Vector2d(_parent.Center, max_secant.p1);
+            Vector2d v_removed_p2 = new Vector2d(_parent.Center, max_secant.p2);
+
+            if (v_move.Det(v_removed_p1) * v_move.Det(v_removed_p2) > 0) return;
 
             // expand both slices
-            Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + cutter_r);
-            Circle2F this_wall = new Circle2F(_ball.Center, _ball.Radius + cutter_r);
+            Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + tool_r);
+            Circle2F this_wall = new Circle2F(_ball.Center, _ball.Radius + tool_r);
 
-            double e0 = calc_radial_engagement(parent_wall, this_wall, max_secant.p1, cutter_r, arc.Direction);
-            double e1 = calc_radial_engagement(parent_wall, this_wall, max_secant.p2, cutter_r, arc.Direction);
+            double ted_head_end = calc_ted(parent_wall, this_wall, max_secant.p1, tool_r, arc.Direction);
+            double ted_tail_start = calc_ted(parent_wall, this_wall, max_secant.p2, tool_r, arc.Direction);
 
-            double max_eng = Math.Max(e0, e1);
+            double ted = Math.Max(ted_head_end, ted_tail_start);
 
-            if (max_eng <= 0)
+            if (ted <= 0)
             {
-                Logger.err("max engagement vanished after refining the slice !");
+                Logger.err("max TED vanished after refining the slice !");
                 return;
             }
 
-            max_eng = (1 - seg_engagement_derating) * max_eng + _mid_engagement * seg_engagement_derating;
-            _max_engagement = Math.Max(max_eng, _entry_engagement);
+            ted = (ted + _mid_ted) / 2;
+            _max_ted = Math.Max(ted, _entry_ted);
         }
 
         public void Append_leadin_and_leadout(double leadin_angle, double leadout_angle)
@@ -336,18 +335,18 @@ namespace Matmill
             create_initial_slice(Center, p1, Dir);
         }
 
-        public Slice(Slice parent, Point2F center, double radius, RotationDirection dir, double cutter_r, Slice last_slice)
+        public Slice(Slice parent, Point2F center, double radius, RotationDirection dir, double tool_r, Slice last_slice)
         {
             _parent = parent;
             _ball = new Circle2F(center, radius);
             _dist = Point2F.Distance(center, parent.Center);
 
             double delta_r = radius - parent.Radius;
-            double coarse_engagement = _dist + delta_r;
+            double coarse_ted = _dist + delta_r;
 
-            // 1) one ball is inside other, no intersections - engagement is 0, mark the distance as negative
-            // 2) balls are spaced too far and do not intersect, engagement is 0, distance is positive
-            // 3) balls are intersect, engagement is valid
+            // 1) one ball is inside other, no intersections - TED is 0, mark the distance as negative
+            // 2) balls are spaced too far and do not intersect, TED is 0, distance is positive
+            // 3) balls are intersect, TED is valid
             if (_dist <= Math.Abs(delta_r))
             {
                 _dist = -_dist;
@@ -355,8 +354,8 @@ namespace Matmill
             }
             if (_dist >= radius + parent.Radius) return;
 
-            // engagement can't be more >= cutter diameter, this check prevents fails during the calculation of real angle-based engagement
-            if (coarse_engagement > cutter_r * 1.999) return;
+            // TED can't be more >= tool diameter, this check prevents fails during the calculation of real angle-based TED
+            if (coarse_ted > tool_r * 1.999) return;
 
             Line2F insects = _parent.Ball.CircleIntersect(_ball);
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
@@ -368,47 +367,42 @@ namespace Matmill
                 return;
             }
 
-            Arc2F arc;
+            Vector2d v_move = new Vector2d(_parent.Center, _ball.Center);
+            Vector2d v1 = new Vector2d(_parent.Center, insects.p1);
+            RotationDirection default_dir = v_move.Det(v1) > 0 ? RotationDirection.CW : RotationDirection.CCW;
 
-            bool should_choose_direction = false;
             if (dir == RotationDirection.Unknown)
             {
-                dir = RotationDirection.CW;
-                if (last_slice != null)
-                    should_choose_direction = true;
-            }
-
-            if (! should_choose_direction)
-            {
-                arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
-                if (!arc.VectorInsideArc(new Vector2F(_parent.Center, _ball.Center)))
-                    arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);         // flip arc start/end, preserving same direction
-            }
-            else
-            {
-                if (last_slice.End.DistanceTo(insects.p1) < last_slice.End.DistanceTo(insects.p2))
-                    arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
-                else
-                    arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
-
-                if (!arc.VectorInsideArc(new Vector2F(_parent.Center, _ball.Center)))
+                if (last_slice == null)
                 {
-                    dir = RotationDirection.CCW;
-                    arc = new Arc2F(_ball.Center, arc.P1, arc.P2, dir);                 // flip direction, preserving same start/end
+                    dir = RotationDirection.CCW;    // just something
+                }
+                else
+                {
+                    if (last_slice.End.DistanceTo(insects.p1) < last_slice.End.DistanceTo(insects.p2))  // match, use existing dir
+                        dir = default_dir;
+                    else
+                        dir = (default_dir == RotationDirection.CCW) ? RotationDirection.CW : RotationDirection.CCW;   // flip
                 }
             }
 
+            Arc2F arc;
+            if (default_dir == dir)
+                arc = new Arc2F(_ball.Center, insects.p1, insects.p2, dir);
+            else
+                arc = new Arc2F(_ball.Center, insects.p2, insects.p1, dir);
+
             _segments.Add(arc);
 
-            calc_engagements(cutter_r);
+            calc_teds(tool_r);
 
-            if (_mid_engagement <= 0)
+            if (_mid_ted <= 0)
             {
-                Logger.warn("forced to patch mid_engagement");
-                _mid_engagement = coarse_engagement;    // shouldn't be, but ok
+                Logger.warn("forced to patch mid_ted");
+                _mid_ted = coarse_ted;    // shouldn't be, but ok
             }
 
-            _max_engagement = Math.Max(_mid_engagement, _entry_engagement);
+            _max_ted = Math.Max(_mid_ted, _entry_ted);
         }
 
         public Slice(Point2F center, double radius, RotationDirection dir)

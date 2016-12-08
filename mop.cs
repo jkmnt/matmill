@@ -376,9 +376,9 @@ namespace Trochopock
             Pocket_generator gen = new Pocket_generator(outline, islands);
 
             gen.General_tolerance = is_inch_units() ? 0.001 / 25.4 : 0.001;
-            gen.Cutter_d = base.ToolDiameter.Cached;
-            gen.Max_engagement = base.ToolDiameter.Cached * _stepover.Cached;
-            gen.Min_engagement = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
+            gen.Tool_d = base.ToolDiameter.Cached;
+            gen.Max_ted = base.ToolDiameter.Cached * _stepover.Cached;
+            gen.Min_ted = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
 
             gen.Startpoint = (Point2F)base.StartPoint.Cached;
             gen.Margin = base.RoughingClearance.Cached;

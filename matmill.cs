@@ -22,46 +22,6 @@ namespace Matmill
         DEBUG_MEDIAL_AXIS,
     }
 
-    public interface ILogger
-    {
-        void log(string s, params object[] args);
-        void warn(string s, params object[] args);
-        void err(string s, params object[] args);
-    }
-
-    public class Dummy_logger : ILogger
-    {
-        public void log(string s, params object[] args) { }
-        public void warn(string s, params object[] args) { }
-        public void err(string s, params object[] args) { }
-    }
-
-    static class Logger
-    {
-        static ILogger handler = new Dummy_logger();
-
-        public static void log(string s, params object[] args)
-        {
-            handler.log(s, args);
-        }
-
-        public static void warn(string s, params object[] args)
-        {
-            handler.warn(s, args);
-        }
-
-        public static void err(string s, params object[] args)
-        {
-            handler.err(s, args);
-        }
-
-        public static void attach_logger(ILogger logger)
-        {
-            handler = logger;
-        }
-
-    }
-
     class Pocket_path : List<Pocket_path_item> { }
 
     class Pocket_path_item: Polyline
@@ -112,10 +72,10 @@ namespace Matmill
     {
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
-        private const double ENGAGEMENT_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
-        private const double FINAL_ALLOWED_ENGAGEMENT_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
+        private const double TED_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
+        private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
 
-        private bool DROP_BRANCH_ON_OVERSHOOT = false;
+        private bool DROP_BRANCH_ON_OVERSHOOT = true;
 
         private readonly Polyline _outline;
         private readonly Polyline[] _islands;
@@ -123,26 +83,24 @@ namespace Matmill
         private readonly T4 _reg_t4;
 
         private double _general_tolerance = 0.001;
-        private double _cutter_r = 1.5;
+        private double _tool_r = 1.5;
         private double _margin = 0;
-        private double _max_engagement = 3.0 * 0.4;
-        private double _min_engagement = 3.0 * 0.1;
-        private double _segmented_slice_engagement_derating_k = 0.5;
+        private double _max_ted = 3.0 * 0.4;
+        private double _min_ted = 3.0 * 0.1;        
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
         private bool _should_smooth_chords = false;
-        private bool _should_emit_debug_medial_axis = true;
+        private bool _should_emit_debug_medial_axis = false;
         private double _slice_leadin_angle = 3 * Math.PI / 180;
         private double _slice_leadout_angle = 0.5 * Math.PI / 180;
 
-        public double Cutter_d                                    { set { _cutter_r = value / 2.0;}}
+        public double Tool_d                                      { set { _tool_r = value / 2.0;}}
         public double General_tolerance                           { set { _general_tolerance = value; } }
         public double Margin                                      { set { _margin = value; } }
-        public double Max_engagement                              { set { _max_engagement = value; } }
-        public double Min_engagement                              { set { _min_engagement = value; } }
+        public double Max_ted                                     { set { _max_ted = value; } }
+        public double Min_ted                                     { set { _min_ted = value; } }
         public double Slice_leadin_angle                          { set { _slice_leadin_angle = value; } }
-        public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }
-        public double Segmented_slice_engagement_derating_k       { set { _segmented_slice_engagement_derating_k = value; } }
+        public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }        
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
         public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}
@@ -155,7 +113,7 @@ namespace Matmill
 
         private double _min_passable_mic_radius
         {
-            get { return 0.1 * _cutter_r; } // 5 % of cutter diameter is seems to be ok
+            get { return 0.1 * _tool_r; } // 5 % of tool diameter is seems to be ok
         }
 
         private List<Point2F> sample_curve(Polyline p, double step)
@@ -191,9 +149,9 @@ namespace Matmill
         {
             List<Point2F> plist = new List<Point2F>();
 
-            plist.AddRange(sample_curve(_outline, _cutter_r / 10));
+            plist.AddRange(sample_curve(_outline, _tool_r / 10));
             foreach (Polyline p in _islands)
-                plist.AddRange(sample_curve(p, _cutter_r / 10));
+                plist.AddRange(sample_curve(p, _tool_r / 10));
 
             Logger.log("got {0} points", plist.Count);
 
@@ -284,70 +242,7 @@ namespace Matmill
             }
 
             // account for margin in just one subrtract. Nice !
-            return radius - _cutter_r - _margin;
-        }
-
-        private Slice find_nearest_slice(Branch branch, Point2F pt)
-        {
-            Slice best_candidate = null;
-
-            double min_dist = double.MaxValue;
-
-            List<Slice> candidates = branch.Get_upstream_roadblocks();
-            foreach (Slice candidate in candidates)
-            {
-                double dist = candidate.Center.DistanceTo(pt);
-
-                if (dist < min_dist)
-                {
-                    min_dist = dist;
-                    best_candidate = candidate;
-                }
-            }
-
-            return best_candidate;
-        }
-
-        // XXX: bad choicer !
-        private Slice choose_parent(Branch branch, Point2F pt, double radius)
-        {
-            Slice best_candidate = null;
-
-            double min_dist = double.MaxValue;
-
-            List<Slice> candidates = branch.Get_upstream_roadblocks();
-
-            Slice s;
-            foreach (Slice candidate in candidates)
-            {
-                s = new Slice(candidate, pt, radius, _dir, _cutter_r, null);
-
-                if (s.Max_engagement > _max_engagement * 2)   // outside of max engagement, toss candidate
-                    continue;
-
-                if (s.Max_engagement == 0)
-                {
-                     if (s.Dist > 0)  // slices are spaced too far away, toss candidate
-                         continue;
-
-                     // XXX: one inside another may be a wrong decision !
-                     // s.Dist <= 0, slices are one inside another or coincident, ok
-                }
-
-                double dist = Math.Abs(s.Dist);
-                if (dist < min_dist)
-                {
-                    min_dist = dist;
-                    best_candidate = candidate;
-                }
-            }
-
-            if (best_candidate == null)
-            {
-                Logger.log("no candidate found");
-            }
-
-            return best_candidate;
+            return radius - _tool_r - _margin;
         }
 
         private List<Slice> find_colliding_slices(Slice s, T4 ready_slices)
@@ -472,13 +367,9 @@ namespace Matmill
             if (branch.Parent != null)
             {
                 // non-initial slice
-                //parent_slice = find_nearest_slice(branch, start_pt);
-                parent_slice = choose_parent(branch, start_pt, start_radius);
+                parent_slice = branch.Get_upstream_slice();
                 if (parent_slice == null)
-                {
-                    Logger.warn("failed to attach branch");
-                    return;
-                }
+                    throw new Exception("parent slice is null - shouldn't be");
 
                 if (last_slice == null)
                     throw new Exception("last slice is null - shouldn't be");
@@ -513,9 +404,9 @@ namespace Matmill
                     }
                     else
                     {
-                        Slice s = new Slice(parent_slice, pt, radius, _dir, _cutter_r, last_slice);
+                        Slice s = new Slice(parent_slice, pt, radius, _dir, _tool_r, last_slice);
 
-                        if (s.Max_engagement == 0)  // no intersections, two possible cases
+                        if (s.Max_ted == 0)  // no intersections, two possible cases
                         {
                             if (s.Dist <= 0)        // balls are inside each other, go right
                                 left = mid;
@@ -526,15 +417,16 @@ namespace Matmill
                         {
                             // XXX: is this candidate is better than the last ?
                             candidate = s;
-                            candidate.Refine(find_colliding_slices(candidate, ready_slices), _cutter_r, _segmented_slice_engagement_derating_k, _cutter_r);
+                            List<Slice> colliding_slices = find_colliding_slices(candidate, ready_slices);
+                            candidate.Refine(colliding_slices, _tool_r, _tool_r);
 
-                            if (candidate.Max_engagement > _max_engagement)
+                            if (candidate.Max_ted > _max_ted)
                             {
                                 right = mid;        // overshoot, go left
                             }
-                            else if ((_max_engagement - candidate.Max_engagement) / _max_engagement > ENGAGEMENT_TOLERANCE_PERCENTAGE)
+                            else if ((_max_ted - candidate.Max_ted) / _max_ted > TED_TOLERANCE_PERCENTAGE)
                             {
-                                left = mid;         // undershoot outside the strict engagement tolerance, go right
+                                left = mid;         // undershoot outside the strict TED tolerance, go right
                             }
                             else
                             {
@@ -552,15 +444,19 @@ namespace Matmill
                     }
                 }
 
-                if (candidate == null) return;
+                if (candidate == null)
+                {
+//                    Logger.log("no suitable candidates found at all. stopping slicing the branch");
+                    return;
+                }
 
-                // discard slice if outside the specified min engagement
-                if (candidate.Max_engagement < _min_engagement)
+                // discard slice if outside the specified min TED
+                if (candidate.Max_ted < _min_ted)
                     return;
 
-                double err = (candidate.Max_engagement - _max_engagement) / _max_engagement;
+                double err = (candidate.Max_ted - _max_ted) / _max_ted;
                 // discard slice if outside the final allowed percentage
-                if (err > FINAL_ALLOWED_ENGAGEMENT_OVERSHOOT_PERCENTAGE)
+                if (err > FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE)
                 {
                     if (DROP_BRANCH_ON_OVERSHOOT)
                     {
@@ -570,7 +466,7 @@ namespace Matmill
                     else
                     {
                         Logger.warn("forced to produce slice with stepover = {0}. It's a {1}% more than the normal stepover. Please inspect slice at {2}.",
-                                                             candidate.Max_engagement / (_cutter_r * 2),
+                                                             candidate.Max_ted / (_tool_r * 2),
                                                              err * 100,
                                                              candidate.Start.ToString());
                     }
@@ -690,7 +586,7 @@ namespace Matmill
                 }
                 if (get_mic_radius(_startpoint) < _min_passable_mic_radius)
                 {
-                    Logger.warn("startpoint radius < cutter radius");
+                    Logger.warn("startpoint radius < tool radius");
                     return null;
                 }
 
@@ -954,8 +850,8 @@ namespace Matmill
         {
             Pocket_path_item path;
 
-            // do not emit biarcs if distance is too small ( < 5 % of the cutter diameter)
-            if (_should_smooth_chords && src.End.DistanceTo(dst.Start) > _cutter_r * 0.1)
+            // do not emit biarcs if distance is too small ( < 5 % of the tool diameter)
+            if (_should_smooth_chords && src.End.DistanceTo(dst.Start) > _tool_r * 0.1)
             {
                 path = connect_slices_with_biarc(dst, src);
                 if (path != null)
@@ -977,7 +873,7 @@ namespace Matmill
 
             // emit spiral toolpath for root
             Pocket_path_item spiral = new Pocket_path_item(Pocket_path_item_type.SPIRAL);
-            foreach (Biarc2d biarc in Spiral_generator.Gen_archimedean_spiral(root_slice.Center, root_slice.Start, _max_engagement, _initial_dir))
+            foreach (Biarc2d biarc in Spiral_generator.Gen_archimedean_spiral(root_slice.Center, root_slice.Start, _max_ted, _initial_dir))
                 spiral.Add(biarc, _general_tolerance);
             path.Add(spiral);
 

@@ -8,9 +8,10 @@ using CamBam;
 using CamBam.UI;
 using CamBam.CAD;
 
-namespace Trochopock
+namespace Matmill
 {
-    static class Host
+    // Insert logger into the matmill namespace to be bound in compile-time
+    class Logger
     {
         static public void log(int level, string s, params object[] args)
         {
@@ -29,22 +30,11 @@ namespace Trochopock
             ThisApplication.AddLogMessage("TrochoPock error: " + s, args);
         }
     }
+}
 
-    class Hostlogger : Matmill.ILogger
-    {
-        public void log(string s, params object[] args)
-        {
-            Host.log(s, args);
-        }
-        public void warn(string s, params object[] args)
-        {
-            Host.warn(s, args);
-        }
-        public void err(string s, params object[] args)
-        {
-            Host.err(s, args);
-        }
-    }
+namespace Trochopock
+{
+    class Host : Matmill.Logger { };
 
     public static class Trochopock_plug
     {
@@ -132,9 +122,7 @@ namespace Trochopock
         }
 
         public static void InitPlugin(CamBamUI ui)
-        {
-            Matmill.Logger.attach_logger(new Hostlogger());
-
+        {            
             ToolStripMenuItem menu_entry;
 
             menu_entry = new ToolStripMenuItem();
