@@ -2,10 +2,14 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using CamBam.Geom;
+
 namespace Matmill
 {
     class Branch
     {
+        public delegate int Branch_visitor(Point2F pt);
+
         public readonly Curve Curve = new Curve();
         public readonly Branch Parent = null;
         public readonly List<Branch> Children = new List<Branch>();
@@ -95,6 +99,38 @@ namespace Matmill
         {
             Parent = parent;
         }
-    }
 
+        public void Bisect(Branch_visitor visitor, ref double t, double stop_distance)
+        {
+            if (t < 0.0 || t > 1.0)
+                throw new Exception("branch bisector was called with a wrong range");            
+
+            double left = t;
+            double right = 1.0;            
+
+            double mid;
+
+            while (true)
+            {
+                mid = (left + right) / 2;
+                Point2F pt = Curve.Get_parametric_pt(mid);
+
+                int result = visitor(pt);
+
+                if (result == 0)                                    
+                    break;                
+
+                if (result < 0)
+                    right = mid;
+                else if (result > 0)
+                    left = mid;
+
+                Point2F other = Curve.Get_parametric_pt(left == mid ? right : left);
+                if (pt.DistanceTo(other) < stop_distance)   // range has shrinked, stop search
+                    break;
+            }
+
+            t = mid;            
+        }
+    }
 }

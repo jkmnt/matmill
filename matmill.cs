@@ -116,6 +116,21 @@ namespace Matmill
             get { return 0.1 * _tool_r; } // 5 % of tool diameter is seems to be ok
         }
 
+        private class Slice_evaluator_context
+        {
+            public readonly Slice Parent_slice;
+            public readonly Slice Last_slice;
+            public readonly T4 Ready_slices;
+            public Slice Candidate;
+
+            public Slice_evaluator_context(Slice parent_slice, Slice last_slice, T4 ready_slices)
+            {
+                this.Parent_slice = parent_slice;
+                this.Last_slice = last_slice;
+                this.Ready_slices = ready_slices;
+            }
+        }
+
         private List<Point2F> sample_curve(Polyline p, double step)
         {
             // divide curve evenly. There is a bug in CamBam's divide by step routine (duplicate points), while 'divide to n equal segments' should work ok.
@@ -354,108 +369,71 @@ namespace Matmill
             return p;
         }
 
+        private int evaluate_possible_slice(Point2F pt, Slice_evaluator_context ctx)
+        {
+            double radius = get_mic_radius(pt);
+
+            if (radius < _min_passable_mic_radius) return -1; // assuming the branch is always starting from passable mics, so it's a narrow channel and we should be more conservative, go left
+
+            Slice s = new Slice(ctx.Parent_slice, pt, radius, _dir, _tool_r, ctx.Last_slice);
+
+            if (s.Placement != Slice_placement.NORMAL)
+            {                
+                if (s.Placement == Slice_placement.INSIDE_ANOTHER) return 1;    // go right
+                if (s.Placement == Slice_placement.TOO_FAR) return -1;          // go left                    
+
+                throw new Exception("unknown slice placement");
+            }
+            // intersection
+            // XXX: is this candidate is better than the last ?
+            ctx.Candidate = s;
+            s.Refine(find_colliding_slices(s, ctx.Ready_slices), _tool_r, _tool_r);
+
+            if (s.Max_ted > _max_ted) return -1;                                            // overshoot, go left
+            if ((_max_ted - s.Max_ted) / _max_ted > TED_TOLERANCE_PERCENTAGE) return 1;     // undershoot outside the strict TED tolerance, go right
+
+            return 0;                                                                       // good slice inside the tolerance, stop search
+        }
+
         private void trace_branch(Branch branch, T4 ready_slices, ref Slice last_slice)
         {
-            Slice parent_slice = null;
-
             if (branch.Curve.Points.Count == 0)
                 throw new Exception("branch with the empty curve");
 
-            Point2F start_pt = branch.Curve.Start;
-            double start_radius = get_mic_radius(start_pt);
-
-            if (branch.Parent != null)
+            Slice parent_slice;
+            if (branch.Parent != null)  // non-root slice
             {
-                // non-initial slice
                 parent_slice = branch.Get_upstream_slice();
-                if (parent_slice == null)
-                    throw new Exception("parent slice is null - shouldn't be");
-
-                if (last_slice == null)
-                    throw new Exception("last slice is null - shouldn't be");
             }
             else
             {
-                Slice s = new Slice(start_pt, start_radius, _initial_dir);
+                Point2F start_pt = branch.Curve.Start;
+                Slice s = new Slice(start_pt, get_mic_radius(start_pt), _initial_dir);
                 branch.Slices.Add(s);
                 insert_slice_in_t4(ready_slices, s);
                 parent_slice = s;
                 last_slice = s;
             }
 
-            double left = 0;
+            if (parent_slice == null)
+                throw new Exception("parent slice is null - shouldn't be");
+            if (last_slice == null)
+                throw new Exception("last slice is null - shouldn't be");
+
+            double t = 0;
+
             while (true)
             {
-                Slice candidate = null;
+                Slice_evaluator_context context = new Slice_evaluator_context(parent_slice, last_slice, ready_slices);
+                branch.Bisect(pt => evaluate_possible_slice(pt,  context), ref t, _general_tolerance);
 
-                double right = 1.0;
+                Slice candidate = context.Candidate;
 
-                while (true)
-                {
-                    double mid = (left + right) / 2;
+                if (candidate == null) return;
+                if (candidate.Max_ted < _min_ted) return; // discard slice if outside the specified min TED
 
-                    Point2F pt = branch.Curve.Get_parametric_pt(mid);
-
-                    double radius = get_mic_radius(pt);
-
-                    if (radius < _min_passable_mic_radius)
-                    {
-                        right = mid;    // assuming the branch is always starting from passable mics, so it's a narrow channel and we should be more conservative, go left
-                    }
-                    else
-                    {
-                        Slice s = new Slice(parent_slice, pt, radius, _dir, _tool_r, last_slice);
-
-                        if (s.Max_ted == 0)  // no intersections, two possible cases
-                        {
-                            if (s.Dist <= 0)        // balls are inside each other, go right
-                                left = mid;
-                            else
-                                right = mid;        // balls are spaced too far, go left
-                        }
-                        else    // intersection
-                        {
-                            // XXX: is this candidate is better than the last ?
-                            candidate = s;
-                            List<Slice> colliding_slices = find_colliding_slices(candidate, ready_slices);
-                            candidate.Refine(colliding_slices, _tool_r, _tool_r);
-
-                            if (candidate.Max_ted > _max_ted)
-                            {
-                                right = mid;        // overshoot, go left
-                            }
-                            else if ((_max_ted - candidate.Max_ted) / _max_ted > TED_TOLERANCE_PERCENTAGE)
-                            {
-                                left = mid;         // undershoot outside the strict TED tolerance, go right
-                            }
-                            else
-                            {
-                                left = mid;         // good slice inside the tolerance, stop search
-                                break;
-                            }
-                        }
-                    }
-
-                    Point2F other = branch.Curve.Get_parametric_pt(left == mid ? right : left);
-                    if (pt.DistanceTo(other) < _general_tolerance)
-                    {
-                        left = mid;                 // range has shrinked, stop search
-                        break;
-                    }
-                }
-
-                if (candidate == null)
-                {
-//                    Logger.log("no suitable candidates found at all. stopping slicing the branch");
-                    return;
-                }
-
-                // discard slice if outside the specified min TED
-                if (candidate.Max_ted < _min_ted)
-                    return;
-
-                double err = (candidate.Max_ted - _max_ted) / _max_ted;
                 // discard slice if outside the final allowed percentage
+                double err = (candidate.Max_ted - _max_ted) / _max_ted;
                 if (err > FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE)
                 {
                     if (DROP_BRANCH_ON_OVERSHOOT)
@@ -471,7 +449,6 @@ namespace Matmill
                                                              candidate.Start.ToString());
                     }
                 }
-
                 // if last slice was a root slice, adjust root slice startpoint to remove extra travel and
                 // append leadout to the candindate. leadin is not needed, since join with root will be exact
                 // otherwise append both leadin and leadout

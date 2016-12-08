@@ -9,27 +9,33 @@ using Geom;
 
 namespace Matmill
 {
+    enum Slice_placement
+    {
+        NORMAL,
+        TOO_FAR,
+        INSIDE_ANOTHER,
+    }
+
     class Slice
     {
         private readonly Circle2F _ball;
         private List<Arc2F> _segments = new List<Arc2F>();
         private readonly Slice _parent;
-        private readonly double _dist = 0;
+        private readonly Slice_placement _placement;
         private double _entry_ted = 0;
         private double _mid_ted = 0;
         private double _max_ted = 0;
 
-        public Circle2F Ball            { get { return _ball; } }
-        public double Dist              { get { return _dist; } }
-
-        public Point2F Center           { get { return _ball.Center; } }
-        public double Radius            { get { return _ball.Radius; } }
-        public Slice Parent             { get { return _parent; } }
-        public double Max_ted           { get { return _max_ted; } }
-        public List<Arc2F> Segments     { get { return _segments; } }
-        public Point2F Start            { get { return _segments[0].P1; } }
-        public Point2F End              { get { return _segments[_segments.Count - 1].P2; } }
-        public RotationDirection Dir    { get { return _segments[0].Direction; } }
+        public Circle2F Ball                { get { return _ball; } }
+        public List<Arc2F> Segments         { get { return _segments; } }
+        public Point2F Center               { get { return _ball.Center; } }
+        public Point2F End                  { get { return _segments[_segments.Count - 1].P2; } }
+        public Point2F Start                { get { return _segments[0].P1; } }
+        public RotationDirection Dir        { get { return _segments[0].Direction; } }
+        public Slice Parent                 { get { return _parent; } }
+        public Slice_placement Placement    { get { return _placement; } }
+        public double Max_ted               { get { return _max_ted; } }
+        public double Radius                { get { return _ball.Radius; } }
 
         static private double angle_between_vectors(Vector2d v0, Vector2d v1, RotationDirection dir)
         {
@@ -329,33 +335,42 @@ namespace Matmill
         {
             _parent = parent;
             _ball = new Circle2F(center, radius);
-            _dist = Point2F.Distance(center, parent.Center);
 
+            double dist = Point2F.Distance(center, parent.Center);
             double delta_r = this.Radius - parent.Radius;
-            double coarse_ted = _dist + delta_r;
+            double coarse_ted = dist + delta_r;
 
-            // 1) one ball is inside other, no intersections - TED is 0, mark the distance as negative
+            // 1) one ball is inside other, no intersections
             // 2) balls are spaced too far and do not intersect, TED is 0, distance is positive
             // 3) balls are intersect, TED is valid
-            if (_dist <= Math.Abs(delta_r))
+            if (dist <= Math.Abs(delta_r))
             {
-                _dist = -_dist;
+                _placement = Slice_placement.INSIDE_ANOTHER;                
                 return;
             }
-            if (_dist >= this.Radius + parent.Radius) return;
 
+            if (dist >= this.Radius + parent.Radius)
+            {
+                _placement = Slice_placement.TOO_FAR;
+                return;
+            }
             // TED can't be more >= tool diameter, this check prevents fails during the calculation of real angle-based TED
-            if (coarse_ted > tool_r * 1.999) return;
+            if (coarse_ted > tool_r * 1.999)
+            {
+                _placement = Slice_placement.TOO_FAR;
+                return;
+            }
 
             Line2F insects = _parent.Ball.CircleIntersect(this._ball);
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
             {
                 // try to return meaningful result even if CB routine had failed (unlikely)
                 Logger.err("no intersections found there intersections should be (_parent.Ball.CircleIntersect(_ball))");
-                if (_dist <= this.Radius || _dist <= parent.Radius)
-                    _dist = -Math.Abs(_dist);
+                _placement = (dist <= this.Radius || dist <= parent.Radius) ? Slice_placement.INSIDE_ANOTHER : Slice_placement.TOO_FAR;
                 return;
             }
+
+            _placement = Slice_placement.NORMAL;
 
             Vector2d v_move = new Vector2d(_parent.Center, this.Center);
             Vector2d v1 = new Vector2d(_parent.Center, insects.p1);
@@ -398,6 +413,7 @@ namespace Matmill
         public Slice(Point2F center, double radius, RotationDirection dir)
         {
             _ball = new Circle2F(center, radius);
+            _placement = Slice_placement.NORMAL;
             create_arc_circle(new Point2F(center.X + radius, center.Y), dir);
         }
     }
