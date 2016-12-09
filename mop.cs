@@ -210,9 +210,9 @@ namespace Trochopock
             {
                 _min_stepover_percentage = value;
 
-                if (value < 0.1 || value > 0.9)
+                if (value < 0.05 || value > 0.95)
                 {
-                    _min_stepover_percentage = Math.Max(Math.Min(0.9, value), 0.1);
+                    _min_stepover_percentage = Math.Max(Math.Min(0.95, value), 0.05);
                     redraw_parameters();
                 }
             }
