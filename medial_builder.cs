@@ -15,7 +15,7 @@ namespace Matmill
 
         void Add_point(Point2F pt);
         Medial_branch Spawn_child();
-        void Attach_to_parent();                
+        void Attach_to_parent();
         void Postprocess();
     }
 
@@ -101,7 +101,7 @@ namespace Matmill
             // segments are analyzed for mic radius from both ends. passed segmens are inserted in segpool
             // hashed by one or both endpoints. if endpoint is not hashed, segment wouldn't be followed
             // from that side, preventing formation of bad tree.
-            // segments are connected later in a greedy fashion, hopefully forming a mat covering all
+            // segments are connected later in a greedy fashion, hopefully forming a medial axis covering all
             // pocket.
             // start segment is the one with the largest mic
 
@@ -210,10 +210,10 @@ namespace Matmill
                 b.Add_point(pt);
                 build_branch(b, pool, min_branch_len);
 
-                if (b.Deep_distance > min_branch_len) // attach only 'long enough'                
-                    b.Attach_to_parent();                
-                else                     
-                    Logger.log("skipping short branch");                                    
+                if (b.Deep_distance > min_branch_len) // attach only 'long enough'
+                    b.Attach_to_parent();
+                else
+                    Logger.log("skipping short branch");
             }
             me.Postprocess();
         }
@@ -233,14 +233,14 @@ namespace Matmill
             Segpool pool = new Segpool(medial_axis_segments.Count, general_tolerance);
 
             Point2F tree_start;
-            if (startpoint.IsUndefined) // automatic
+            if (startpoint.IsUndefined)
                 tree_start = prepare_segments_w_auto_startpoint(topo, medial_axis_segments, pool, min_dist_to_wall);
-            else // manual
+            else
                 tree_start = prepare_segments_w_manual_starpoint(topo, medial_axis_segments, pool, min_dist_to_wall, general_tolerance, startpoint);
 
             if (tree_start.IsUndefined)
             {
-                Logger.warn("failed to choose tree start point");                
+                Logger.warn("failed to choose tree start point");
                 return false;
             }
 
@@ -248,8 +248,8 @@ namespace Matmill
             Logger.log("got {0} hashes", pool.N_hashes);
 
             if (! startpoint.IsUndefined)
-                root.Add_point(startpoint);                
-            root.Add_point(tree_start);            
+                root.Add_point(startpoint);
+            root.Add_point(tree_start);
 
             build_tree(root, pool, general_tolerance);
             return true;

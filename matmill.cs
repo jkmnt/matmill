@@ -189,7 +189,7 @@ namespace Matmill
             p.Add(end);
 
             return p;
-        }
+        }        
 
         private Pocket_path_item trace_return_to_base(Slice root_slice, Slice last_slice, Branch_tracer_context ctx)
         {
@@ -247,16 +247,11 @@ namespace Matmill
 
         private void trace_branch(Branch_tracer_context ctx, Branch branch)
         {
-            if (branch.Curve.Points.Count == 0)
-                throw new Exception("branch with the empty curve");
+            ctx.Parent_slice = branch.Get_upstream_slice();
 
-            if (branch.Parent != null)  // non-root slice
+            if (ctx.Parent_slice == null)   // the very start of trace
             {
-                ctx.Parent_slice = branch.Get_upstream_slice();
-            }
-            else
-            {
-                Point2F start_pt = branch.Curve.Start;
+                Point2F start_pt = branch.Start;
                 Slice s = new Slice(start_pt, get_mic_radius(start_pt), _initial_dir);
                 branch.Slices.Add(s);
                 ctx.Add_slice(s);
@@ -290,6 +285,7 @@ namespace Matmill
                 // otherwise append both leadin and leadout
                 if (ctx.Last_slice.Parent == null)
                 {
+                    Logger.log("changing startpoint of root slice");
                     ctx.Last_slice.Change_startpoint(candidate.Start);
                     candidate.Append_leadin_and_leadout(0, _slice_leadout_angle);
                 }
@@ -300,12 +296,12 @@ namespace Matmill
 
                 // generate branch entry after finding the first valid slice (before populating ready slices)
                 if (branch.Slices.Count == 0)
-                    branch.Entry = trace_branch_switch(candidate, ctx.Last_slice, ctx);
+                    branch.Entry = trace_branch_switch(candidate, ctx.Last_slice, ctx);                                    
 
                 branch.Slices.Add(candidate);
                 ctx.Add_slice(candidate);
             }
-        }        
+        }
 
         // check if it is possible to shortcut from a to b via while
         // staying inside the slice balls
@@ -504,8 +500,7 @@ namespace Matmill
 
                 if (_should_emit_debug_medial_axis)
                 {
-                    Pocket_path_item mat = new Pocket_path_item(Pocket_path_item_type.DEBUG_MEDIAL_AXIS);
-                    mat.Add(b.Curve);
+                    Pocket_path_item mat = new Pocket_path_item(Pocket_path_item_type.DEBUG_MEDIAL_AXIS, b.To_polyline());
                     path.Add(mat);
                 }
 

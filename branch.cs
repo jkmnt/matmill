@@ -2,99 +2,71 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 
+using CamBam.CAD;
 using CamBam.Geom;
 
 namespace Matmill
 {
     class Branch : Medial_branch
-    {        
+    {
+        private readonly Curve _curve = new Curve();
+        private readonly List<Branch> _children = new List<Branch>();
+        private readonly Branch Parent = null;
+
         //--- Medial_branch interface
 
         public double Deep_distance                 { get { return calc_deep_distance();  } }
-        public double Shallow_distance              { get { return Curve.Length; } }
-        public Point2F Start                        { get { return Curve.Start; } }
-        public Point2F End                          { get { return Curve.End; } }
+        public double Shallow_distance              { get { return _curve.Length; } }
+        public Point2F Start                        { get { return _curve.Start; } }
+        public Point2F End                          { get { return _curve.End; } }
 
         public void Add_point(Point2F pt)
         {
-            Curve.Add(pt);
+            _curve.Add(pt);
         }
-        
+
         public Medial_branch Spawn_child()
         {
             return new Branch(this);
-        }        
-        
+        }
+
         public void Postprocess()
         {
             // sort children so the shortest branch comes first in df traverse
-            this.Children.Sort((a, b) => a.Deep_distance.CompareTo(b.Deep_distance));
+            this._children.Sort((a, b) => a.Deep_distance.CompareTo(b.Deep_distance));
         }
-        
+
         public void Attach_to_parent()
         {
             if (this.Parent == null)
                 throw new Exception("attempt to attach orphaned branch");
-            this.Parent.Children.Add(this);
+            this.Parent._children.Add(this);
         }
 
         //--- own interface
 
         public delegate int Branch_visitor(Point2F pt);
-
-        public readonly List<Branch> Children = new List<Branch>();
-        public readonly Curve Curve = new Curve();
-        public readonly Branch Parent = null;
         public readonly List<Slice> Slices = new List<Slice>();
-        public Pocket_path_item Entry = null;
 
-        public bool Is_leaf { get { return Children.Count == 0; } }
+        public Pocket_path_item Entry;
+
+        public bool Is_leaf { get { return _children.Count == 0; } }
 
         public List<Branch> Df_traverse()  //
         {
             List<Branch> result = new List<Branch>();
             result.Add(this);
-            foreach (Branch b in Children)
+            foreach (Branch b in _children)
                 result.AddRange(b.Df_traverse());
             return result;
         }
 
         public double calc_deep_distance()
         {
-            double dist = Curve.Length;
-            foreach (Branch b in Children)
+            double dist = _curve.Length;
+            foreach (Branch b in _children)
                 dist += b.Deep_distance;
             return dist;
-        }
-
-        // Get all the slices blocking path (meet first) while traveling up the branch
-        // (and followind neighbour downstream subbranches)
-        public List<Slice> Get_upstream_roadblocks()
-        {
-            List<Slice> candidates = new List<Slice>();
-
-            for (Branch visited = this; visited.Parent != null; visited = visited.Parent)
-            {
-                Branch upstream = visited.Parent;
-
-                if (upstream.Children.Count != 0)
-                {
-                    foreach (Branch child in upstream.Children)
-                    {
-                        // except the path we're walking now
-                        if (child != visited)
-                            candidates.AddRange(child.Get_downstream_roadblocks());
-                    }
-                }
-
-                if (upstream.Slices.Count != 0)
-                {
-                    candidates.Add(upstream.Slices[upstream.Slices.Count - 1]);
-                    break;
-                }
-            }
-
-            return candidates;
         }
 
         public Slice Get_upstream_slice()
@@ -105,30 +77,6 @@ namespace Matmill
 
             if (b == null) return null;
             return b.Slices[b.Slices.Count - 1];
-        }
-
-        // Get all the slices blocking path (meet first) while traveling down the branch
-        // and next subbranches
-        public List<Slice> Get_downstream_roadblocks()
-        {
-            List<Slice> candidates = new List<Slice>();
-
-            if (Slices.Count != 0)
-            {
-                candidates.Add(Slices[0]);
-            }
-            else
-            {
-                foreach (Branch c in Children)
-                    candidates.AddRange(c.Get_downstream_roadblocks());
-            }
-
-            return candidates;
-        }
-
-        public Branch(Branch parent)
-        {
-            Parent = parent;
         }
 
         public void Bisect(Branch_visitor visitor, ref double t, double stop_distance)
@@ -144,7 +92,7 @@ namespace Matmill
             while (true)
             {
                 mid = (left + right) / 2;
-                Point2F pt = Curve.Get_parametric_pt(mid);
+                Point2F pt = _curve.Get_parametric_pt(mid);
 
                 int result = visitor(pt);
 
@@ -156,12 +104,22 @@ namespace Matmill
                 else if (result > 0)
                     left = mid;
 
-                Point2F other = Curve.Get_parametric_pt(left == mid ? right : left);
+                Point2F other = _curve.Get_parametric_pt(left == mid ? right : left);
                 if (pt.DistanceTo(other) < stop_distance)   // range has shrinked, stop search
                     break;
             }
 
             t = mid;
+        }
+
+        public Polyline To_polyline()
+        {
+            return _curve.To_polyline();
+        }
+
+        public Branch(Branch parent)
+        {
+            Parent = parent;
         }
     }
 }
