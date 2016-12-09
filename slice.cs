@@ -238,7 +238,7 @@ namespace Matmill
                 {
                     // ok, a last check - removed arc midpoint should be inside the colliding circle
                     Arc2F check_arc = new Arc2F(arc.Center, secant.p1, secant.p2, arc.Direction);
-                    if (check_arc.Midpoint.DistanceTo(s.Center) < s.Ball.Radius)
+                    if (check_arc.Midpoint.DistanceTo(s.Center) < s.Radius)
                     {
                         max_sweep = sweep;
                         max_secant = secant;
@@ -345,7 +345,7 @@ namespace Matmill
             // 3) balls are intersect, TED is valid
             if (dist <= Math.Abs(delta_r))
             {
-                _placement = Slice_placement.INSIDE_ANOTHER;                
+                _placement = Slice_placement.INSIDE_ANOTHER;
                 return;
             }
 
