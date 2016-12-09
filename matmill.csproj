@@ -84,6 +84,7 @@
       <DependentUpon>resources.resx</DependentUpon>
     </Compile>
     <Compile Include="segpool.cs" />
+    <Compile Include="shapeman.cs" />
     <Compile Include="slice.cs" />
     <Compile Include="spiral.cs" />
     <Compile Include="tree4.cs" />
