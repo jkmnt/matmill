@@ -323,6 +323,16 @@ namespace Tree4
             return objects;
         }
 
+        public List<T> Get_colliding_objects<T>(T4_rect checkbox)
+        {
+            List<T> objects = new List<T>();
+
+            foreach (T4_occupant occupant in get_colliders(checkbox))
+                objects.Add((T)occupant.Obj);
+
+            return objects;
+        }
+
         public List<T4_rect> Get_colliding_obj_rects(T4_rect checkbox)
         {
             List<T4_rect> rects = new List<T4_rect>();

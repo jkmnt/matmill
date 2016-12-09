@@ -72,7 +72,7 @@ namespace Matmill
         private const double TED_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
         private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
 
-        private readonly Shapeman _shapeman;
+        private readonly Topographer _topo;
 
         private double _general_tolerance = 0.001;
         private double _tool_r = 1.5;
@@ -117,15 +117,6 @@ namespace Matmill
             public Slice Last_slice = null;
             public Slice Candidate = null;
 
-            private List<Slice> find_colliding_slices(T4_rect rect)
-            {
-                // TODO: is there a way to do it without repacking ?
-                List<Slice> result = new List<Slice>();
-                foreach(object obj in _ready_slices.Get_colliding_objects(rect))
-                    result.Add((Slice)obj);
-                return result;
-            }
-
             private void insert_in_t4(Slice s)
             {
                 Point2F min = Point2F.Undefined;
@@ -141,7 +132,8 @@ namespace Matmill
                 Point2F max = Point2F.Undefined;
                 s.Get_extrema(ref min, ref max);
 
-                return find_colliding_slices(new T4_rect(min.X, min.Y, max.X, max.Y));
+                T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
+                return _ready_slices.Get_colliding_objects<Slice>(rect);
             }
 
             public List<Slice> Find_intersecting_slices(Point2F a, Point2F b)
@@ -151,7 +143,7 @@ namespace Matmill
                                            Math.Max(a.X, b.X),
                                            Math.Max(a.Y, b.Y));
 
-                return find_colliding_slices(rect);
+                return _ready_slices.Get_colliding_objects<Slice>(rect);
             }
 
             public void Add_slice(Slice s)
@@ -171,7 +163,7 @@ namespace Matmill
 
         private double get_mic_radius(Point2F pt)
         {
-            return _shapeman.Get_dist_to_wall(pt) - _tool_r - _margin;
+            return _topo.Get_dist_to_wall(pt) - _tool_r - _margin;
         }
 
         private Pocket_path_item trace_branch_switch(Slice dst, Slice src, Branch_tracer_context ctx)
@@ -186,9 +178,8 @@ namespace Matmill
             // TODO: skip parts of path to reduce travel even more
             Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.BRANCH_ENTRY);
 
-            List<Slice> path = Slice_utils.Find_lca_path(dst, src);
             p.Add(current);
-            foreach (Slice s in path)
+            foreach (Slice s in Slice_utils.Find_lca_path(dst, src))
             {
                 if (may_shortcut(current, end, ctx))
                     break;
@@ -314,149 +305,7 @@ namespace Matmill
                 branch.Slices.Add(candidate);
                 ctx.Add_slice(candidate);
             }
-        }
-
-        private void build_branch(Branch me, Segpool pool)
-        {
-            Point2F running_end = me.Curve.End;
-            List<Point2F> followers;
-
-            while (true)
-            {
-                followers = pool.Pull_follow_points(running_end);
-
-                if (followers.Count != 1)
-                    break;
-
-                running_end = followers[0];
-                me.Curve.Add(running_end);   // continuation
-            }
-
-            if (followers.Count == 0) return; // end of branch, go out
-
-            foreach (Point2F pt in followers)
-            {
-                Branch b = new Branch(me);
-                b.Curve.Add(running_end);
-                b.Curve.Add(pt);
-                build_branch(b, pool);
-
-                if (b.Deep_distance() > _general_tolerance) // attach only 'long enough'
-                    me.Children.Add(b);
-                else
-                    Logger.log("skipping short branch");
-            }
-            // prefer a shortest branch
-            me.Children.Sort((a, b) => a.Deep_distance().CompareTo(b.Deep_distance()));
-        }
-
-        private Branch build_tree(List<Line2F> medial_axis_segments)
-        {
-            Segpool pool = new Segpool(medial_axis_segments.Count, _general_tolerance);
-            Branch root = new Branch(null);
-            Point2F tree_start = Point2F.Undefined;
-
-            Logger.log("analyzing segments");
-
-            // a lot of stuff going on here.
-            // segments are analyzed for mic radius from both ends. passed segmens are inserted in segpool
-            // hashed by one or both endpoints. if endpoint is not hashed, segment wouldn't be followed
-            // from that side, preventing formation of bad tree.
-            // segments are connected later in a greedy fashion, hopefully forming a mat covering all
-            // pocket.
-            // simultaneously we are looking for the tree root point - automatic, as a point with the largest mic,
-            // or manually, as a mat segment nearest to the user specified start point.
-            if (_startpoint.IsUndefined)
-            {
-                // automatic startpoint, choose the start segment - the one with the largest mic
-                double max_r = double.MinValue;
-
-                foreach (Line2F seg in medial_axis_segments)
-                {
-                    double r1 = get_mic_radius(seg.p1);
-                    double r2 = get_mic_radius(seg.p2);
-
-                    if (r1 >= _min_passable_mic_radius)
-                    {
-                        pool.Add(seg, false);
-                        if (r1 > max_r)
-                        {
-                            max_r = r1;
-                            tree_start = seg.p1;
-                        }
-                    }
-                    if (r2 >= _min_passable_mic_radius)
-                    {
-                        pool.Add(seg, true);
-                        if (r2 > max_r)
-                        {
-                            max_r = r2;
-                            tree_start = seg.p2;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                // manual startpoint, seek the segment with the closest end to startpoint
-                if (! _shapeman.Is_line_inside_region(new Line2F(_startpoint, _startpoint), _general_tolerance))
-                {
-                    Logger.warn("startpoint is outside the pocket");
-                    return null;
-                }
-                if (get_mic_radius(_startpoint) < _min_passable_mic_radius)
-                {
-                    Logger.warn("startpoint radius < tool radius");
-                    return null;
-                }
-
-                // insert startpoing to root poly, it would be connected to seg_start later
-                root.Curve.Add(_startpoint);
-
-                double min_dist = double.MaxValue;
-
-                foreach (Line2F seg in medial_axis_segments)
-                {
-                    double r1 = get_mic_radius(seg.p1);
-                    double r2 = get_mic_radius(seg.p2);
-
-                    if (r1 >= _min_passable_mic_radius)
-                    {
-                        pool.Add(seg, false);
-                        double dist = _startpoint.DistanceTo(seg.p1);
-                        if (dist < min_dist && _shapeman.Is_line_inside_region(new Line2F(_startpoint, seg.p1), _general_tolerance))
-                        {
-                            min_dist = dist;
-                            tree_start = seg.p1;
-                        }
-                    }
-                    if (r2 >= _min_passable_mic_radius)
-                    {
-                        pool.Add(seg, true);
-                        double dist = _startpoint.DistanceTo(seg.p2);
-                        if (dist < min_dist && _shapeman.Is_line_inside_region(new Line2F(_startpoint, seg.p2), _general_tolerance))
-                        {
-                            min_dist = dist;
-                            tree_start = seg.p2;
-                        }
-                    }
-                }
-            }
-
-            if (tree_start.IsUndefined)
-            {
-                Logger.warn("failed to choose tree start point");
-                return null;
-            }
-
-            Logger.log("done analyzing segments");
-            Logger.log("got {0} hashes", pool.N_hashes);
-
-            root.Curve.Add(tree_start);
-            build_branch(root, pool);
-            return root;
-        }
-
+        }        
 
         // check if it is possible to shortcut from a to b via while
         // staying inside the slice balls
@@ -702,12 +551,10 @@ namespace Matmill
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
 
-            Logger.log("generating medial axis");
-            List<Line2F> medial_axis_segs = _shapeman.Get_medial_axis_segments(_tool_r / 10, _general_tolerance);
-            Logger.log("got {0} medial_axis_segs segments", medial_axis_segs.Count);
+            Logger.log("building medial axis");
 
-            Logger.log("building tree");
-            Branch root = build_tree(medial_axis_segs);
+            Branch root = _topo.Get_medial_axis(_tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin);
+
             if (root == null)
             {
                 Logger.warn("failed to build tree");
@@ -716,7 +563,7 @@ namespace Matmill
 
             List<Branch> traverse = root.Df_traverse();
 
-            Branch_tracer_context tracer_ctx = new Branch_tracer_context(_shapeman.Bbox);
+            Branch_tracer_context tracer_ctx = new Branch_tracer_context(_topo.Bbox);
 
             Logger.log("generating slices");
             foreach (Branch b in traverse)
@@ -728,7 +575,7 @@ namespace Matmill
 
         public Pocket_generator(Polyline outline, Polyline[] islands)
         {
-            _shapeman = new Shapeman(outline, islands);
+            _topo = new Topographer(outline, islands);
         }
     }
 }
