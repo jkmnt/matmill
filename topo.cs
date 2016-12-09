@@ -118,12 +118,12 @@ namespace Matmill
             return plist;
         }
 
-        public Branch Get_medial_axis(double sample_step, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
+        public bool Build_medial_axis(Medial_branch root, double sample_step, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
         {
             List<Point2F> samples = Get_samples(sample_step);
             Logger.log("got {0} points", samples.Count);
 
-            return Medial_axis_builder.Build(this, samples, general_tolerance, startpoint, min_dist_to_wall);
+            return Medial_builder.Build(root, this, samples, general_tolerance, startpoint, min_dist_to_wall);
         }
 
         public Topographer(Polyline outline, Polyline[] islands)

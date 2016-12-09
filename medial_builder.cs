@@ -6,7 +6,20 @@ using Voronoi2;
 
 namespace Matmill
 {
-    class Medial_axis_builder
+    interface Medial_branch
+    {
+        Point2F Start { get; }
+        Point2F End { get; }
+        double Shallow_distance { get; }
+        double Deep_distance { get; }
+
+        void Add_point(Point2F pt);
+        Medial_branch Spawn_child();
+        void Attach_to_parent();                
+        void Postprocess();
+    }
+
+    class Medial_builder
     {
         private const double VORONOI_MARGIN = 1.0;
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
@@ -172,9 +185,9 @@ namespace Matmill
             return tree_start;
         }
 
-        private static void build_branch(Branch me, Segpool pool, double min_branch_len)
+        private static void build_branch(Medial_branch me, Segpool pool, double min_branch_len)
         {
-            Point2F running_end = me.Curve.End;
+            Point2F running_end = me.End;
             List<Point2F> followers;
 
             while (true)
@@ -185,34 +198,33 @@ namespace Matmill
                     break;
 
                 running_end = followers[0];
-                me.Curve.Add(running_end);   // continuation
+                me.Add_point(running_end);         // continuation
             }
 
             if (followers.Count == 0) return; // end of branch, go out
 
             foreach (Point2F pt in followers)
             {
-                Branch b = new Branch(me);
-                b.Curve.Add(running_end);
-                b.Curve.Add(pt);
+                Medial_branch b = me.Spawn_child();
+                b.Add_point(running_end);
+                b.Add_point(pt);
                 build_branch(b, pool, min_branch_len);
 
-                if (b.Deep_distance() > min_branch_len) // attach only 'long enough'
-                    me.Children.Add(b);
-                else
-                    Logger.log("skipping short branch");
+                if (b.Deep_distance > min_branch_len) // attach only 'long enough'                
+                    b.Attach_to_parent();                
+                else                     
+                    Logger.log("skipping short branch");                                    
             }
-            // prefer a shortest branch
-            me.Children.Sort((a, b) => a.Deep_distance().CompareTo(b.Deep_distance()));
+            me.Postprocess();
         }
 
-        private static void build_tree(Branch root, Segpool pool, double min_branch_len)
+        private static void build_tree(Medial_branch root, Segpool pool, double min_branch_len)
         {
             // this will build tree recursively
             build_branch(root, pool, min_branch_len);
         }
 
-        public static Branch Build(Topographer topo, List<Point2F> samples, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
+        public static bool Build(Medial_branch root, Topographer topo, List<Point2F> samples, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
         {
             List<Line2F> medial_axis_segments = get_medial_axis_segments(topo, samples, general_tolerance);
 
@@ -228,21 +240,19 @@ namespace Matmill
 
             if (tree_start.IsUndefined)
             {
-                Logger.warn("failed to choose tree start point");
-                return null;
+                Logger.warn("failed to choose tree start point");                
+                return false;
             }
 
             Logger.log("done analyzing segments");
             Logger.log("got {0} hashes", pool.N_hashes);
 
-            Branch root = new Branch(null);
             if (! startpoint.IsUndefined)
-                root.Curve.Add(startpoint);
-            root.Curve.Add(tree_start);
+                root.Add_point(startpoint);                
+            root.Add_point(tree_start);            
 
             build_tree(root, pool, general_tolerance);
-
-            return root;
+            return true;
         }
     }
 }

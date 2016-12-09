@@ -5,14 +5,46 @@ using System.Collections.Generic;
 using CamBam.Geom;
 
 namespace Matmill
-{    
-    class Branch
-    {
+{
+    class Branch : Medial_branch
+    {        
+        //--- Medial_branch interface
+
+        public double Deep_distance                 { get { return calc_deep_distance();  } }
+        public double Shallow_distance              { get { return Curve.Length; } }
+        public Point2F Start                        { get { return Curve.Start; } }
+        public Point2F End                          { get { return Curve.End; } }
+
+        public void Add_point(Point2F pt)
+        {
+            Curve.Add(pt);
+        }
+        
+        public Medial_branch Spawn_child()
+        {
+            return new Branch(this);
+        }        
+        
+        public void Postprocess()
+        {
+            // sort children so the shortest branch comes first in df traverse
+            this.Children.Sort((a, b) => a.Deep_distance.CompareTo(b.Deep_distance));
+        }
+        
+        public void Attach_to_parent()
+        {
+            if (this.Parent == null)
+                throw new Exception("attempt to attach orphaned branch");
+            this.Parent.Children.Add(this);
+        }
+
+        //--- own interface
+
         public delegate int Branch_visitor(Point2F pt);
 
+        public readonly List<Branch> Children = new List<Branch>();
         public readonly Curve Curve = new Curve();
         public readonly Branch Parent = null;
-        public readonly List<Branch> Children = new List<Branch>();
         public readonly List<Slice> Slices = new List<Slice>();
         public Pocket_path_item Entry = null;
 
@@ -27,12 +59,11 @@ namespace Matmill
             return result;
         }
 
-        public double Deep_distance()
+        public double calc_deep_distance()
         {
             double dist = Curve.Length;
             foreach (Branch b in Children)
-                dist += b.Deep_distance();
-
+                dist += b.Deep_distance;
             return dist;
         }
 

@@ -553,9 +553,10 @@ namespace Matmill
 
             Logger.log("building medial axis");
 
-            Branch root = _topo.Get_medial_axis(_tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin);
+            Branch root = new Branch(null);
+            bool is_ok = _topo.Build_medial_axis(root, _tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin);
 
-            if (root == null)
+            if (! is_ok)
             {
                 Logger.warn("failed to build tree");
                 return null;

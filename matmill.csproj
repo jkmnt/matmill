@@ -75,7 +75,7 @@
     <Compile Include="curve.cs" />
     <Compile Include="geom.cs" />
     <Compile Include="matmill.cs" />
-    <Compile Include="medial_axis_builder.cs" />
+    <Compile Include="medial_builder.cs" />
     <Compile Include="mop.cs" />
     <Compile Include="plug.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
