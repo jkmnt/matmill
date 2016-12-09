@@ -174,48 +174,6 @@ namespace Matmill
             return _shapeman.Get_dist_to_wall(pt) - _tool_r - _margin;
         }
 
-        // find the path from src to dst thru least commong ancestor
-        // path is going via the slices centers and excludes the src and dst themselves
-        private List<Point2F> calc_lca_path(Slice dst, Slice src)
-        {
-            List<Point2F> path = new List<Point2F>();
-
-            List<Slice> src_ancestry = new List<Slice>();
-            List<Slice> dst_ancestry = new List<Slice>();
-
-            for (Slice s = src.Parent; s != null; s = s.Parent)
-                src_ancestry.Insert(0, s);
-
-            for (Slice s = dst.Parent; s != null; s = s.Parent)
-                dst_ancestry.Insert(0, s);
-
-            int lca;
-            for (lca = 0; lca < Math.Min(src_ancestry.Count, dst_ancestry.Count); lca++)
-            {
-                if (src_ancestry[lca] != dst_ancestry[lca])
-                    break;
-            }
-
-            if (lca == 0)
-            {
-                ;   // one of the slices must be the root (no ancestry)
-            }
-            else
-            {
-                lca -= 1;   // the first diverging slices in ancestries were detected, lca is the last same slice, so -1
-            }
-
-            // now lca contains the lca of branches
-            // collect path up from src to lca and down to dst
-            for (int i = src_ancestry.Count - 1; i > lca; i--)
-                path.Add(src_ancestry[i].Center);
-
-            for (int i = lca; i < dst_ancestry.Count - 1; i++)
-                path.Add(dst_ancestry[i].Center);
-
-            return path;
-        }
-
         private Pocket_path_item trace_branch_switch(Slice dst, Slice src, Branch_tracer_context ctx)
         {
             Point2F current = src.End;
@@ -228,13 +186,13 @@ namespace Matmill
             // TODO: skip parts of path to reduce travel even more
             Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.BRANCH_ENTRY);
 
-            List<Point2F> path = calc_lca_path(dst, src);
+            List<Slice> path = Slice_utils.Find_lca_path(dst, src);
             p.Add(current);
-            foreach (Point2F pt in path)
+            foreach (Slice s in path)
             {
                 if (may_shortcut(current, end, ctx))
                     break;
-                current = pt;
+                current = s.Center;
                 p.Add(current);
             }
             p.Add(end);

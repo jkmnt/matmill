@@ -1,5 +1,7 @@
 using System;
+
 using CamBam.Geom;
+using CamBam.CAD;
 
 namespace Geom
 {
@@ -220,6 +222,23 @@ namespace Geom
             }
 
             return segs;
+        }
+
+        public Polyline To_polyline(double tolerance)
+        {
+            Polyline p = new Polyline();
+
+            if (Seg1 is Arc2F)
+                p.Add((Arc2F)Seg1, tolerance);
+            else
+                p.Add((Line2F)Seg1, tolerance);
+
+            if (Seg2 is Arc2F)
+                p.Add((Arc2F)Seg2, tolerance);
+            else
+                p.Add((Line2F)Seg2, tolerance);
+
+            return p;
         }
 
         public Biarc2d(Point2F p1, Vector2d t1, Point2F p2, Vector2d t2)

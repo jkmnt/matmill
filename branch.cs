@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using CamBam.Geom;
 
 namespace Matmill
-{
+{    
     class Branch
     {
         public delegate int Branch_visitor(Point2F pt);
@@ -103,10 +103,10 @@ namespace Matmill
         public void Bisect(Branch_visitor visitor, ref double t, double stop_distance)
         {
             if (t < 0.0 || t > 1.0)
-                throw new Exception("branch bisector was called with a wrong range");            
+                throw new Exception("branch bisector was called with a wrong range");
 
             double left = t;
-            double right = 1.0;            
+            double right = 1.0;
 
             double mid;
 
@@ -117,8 +117,8 @@ namespace Matmill
 
                 int result = visitor(pt);
 
-                if (result == 0)                                    
-                    break;                
+                if (result == 0)
+                    break;
 
                 if (result < 0)
                     right = mid;
@@ -130,7 +130,7 @@ namespace Matmill
                     break;
             }
 
-            t = mid;            
+            t = mid;
         }
     }
 }

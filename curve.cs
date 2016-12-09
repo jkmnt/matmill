@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 
 using CamBam.Geom;
+using CamBam.CAD;
 
 namespace Matmill
 {
@@ -51,6 +52,14 @@ namespace Matmill
             double y = p1.Y + offset / dist * (p2.Y - p1.Y);
 
             return new Point2F(x, y);
+        }
+
+        public Polyline To_polyline()
+        {
+            Polyline p = new Polyline();
+            foreach (Point2F pt in Points)
+                p.Add((Point3F)pt);
+            return p;
         }
     }
 }

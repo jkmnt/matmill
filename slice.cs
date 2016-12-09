@@ -417,4 +417,49 @@ namespace Matmill
             create_arc_circle(new Point2F(center.X + radius, center.Y), dir);
         }
     }
+
+    class Slice_utils
+    {
+        // find the path from src to dst thru least commong ancestor
+        // path excludes the src and dst themselves
+        public static List<Slice> Find_lca_path(Slice dst, Slice src)
+        {
+            List<Slice> path = new List<Slice>();
+
+            List<Slice> src_ancestry = new List<Slice>();
+            List<Slice> dst_ancestry = new List<Slice>();
+
+            for (Slice s = src.Parent; s != null; s = s.Parent)
+                src_ancestry.Insert(0, s);
+
+            for (Slice s = dst.Parent; s != null; s = s.Parent)
+                dst_ancestry.Insert(0, s);
+
+            int lca;
+            for (lca = 0; lca < Math.Min(src_ancestry.Count, dst_ancestry.Count); lca++)
+            {
+                if (src_ancestry[lca] != dst_ancestry[lca])
+                    break;
+            }
+
+            if (lca == 0)
+            {
+                ;   // one of the slices must be the root (no ancestry)
+            }
+            else
+            {
+                lca -= 1;   // the first diverging slices in ancestries were detected, lca is the last same slice, so -1
+            }
+
+            // now lca contains the lca of branches
+            // collect path up from src to lca and down to dst
+            for (int i = src_ancestry.Count - 1; i > lca; i--)
+                path.Add(src_ancestry[i]);
+
+            for (int i = lca; i < dst_ancestry.Count - 1; i++)
+                path.Add(dst_ancestry[i]);
+
+            return path;
+        }
+    }
 }
