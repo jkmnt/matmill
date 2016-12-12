@@ -5,67 +5,9 @@ using CamBam.CAD;
 using CamBam.Geom;
 
 using Tree4;
-using Geom;
 
 namespace Matmill
 {
-    enum Pocket_path_item_type
-    {
-        SLICE,
-        SPIRAL,
-        CHORD,
-        SMOOTH_CHORD,
-        BRANCH_ENTRY,
-        SLICE_SHORTCUT,
-        RETURN_TO_BASE,
-        DEBUG_MEDIAL_AXIS,
-    }
-
-    class Pocket_path : List<Pocket_path_item> { }
-
-    class Pocket_path_item: Polyline
-    {
-        public readonly Pocket_path_item_type Item_type;
-
-        public Pocket_path_item(Pocket_path_item_type type) : base()
-        {
-            Item_type = type;
-        }
-
-        public Pocket_path_item(Pocket_path_item_type type, int i) : base(i)
-        {
-            Item_type = type;
-        }
-
-        public Pocket_path_item(Pocket_path_item_type type, Polyline p) : base(p)
-        {
-            Item_type = type;
-        }
-
-        public void Add(Point2F pt)
-        {
-            base.Add(new Point3F(pt.X, pt.Y, 0));
-        }
-
-        public void Add(Curve curve)
-        {
-            foreach (Point2F pt in curve.Points)
-                this.Add(pt);
-        }
-
-        public void Add(Biarc2d biarc, double tolerance)
-        {
-            if (biarc.Seg1 is Arc2F)
-                this.Add((Arc2F)biarc.Seg1, tolerance);
-            else
-                this.Add((Line2F)biarc.Seg1, tolerance);
-
-            if (biarc.Seg2 is Arc2F)
-                this.Add((Arc2F)biarc.Seg2, tolerance);
-            else
-                this.Add((Line2F)biarc.Seg2, tolerance);
-        }
-    }
 
     class Pocket_generator
     {
@@ -166,57 +108,49 @@ namespace Matmill
             return _topo.Get_dist_to_wall(pt) - _tool_r - _margin;
         }
 
-        private Pocket_path_item trace_branch_switch(Slice dst, Slice src, Branch_tracer_context ctx)
+        private List<Point2F> trace_branch_entry(Slice dst, Slice src, Branch_tracer_context ctx)
         {
-            Point2F current = src.End;
-            Point2F end = dst.Start;
-
             if (dst.Parent == src)  // simple continuation
-                return connect_slices(dst, src);
+                return null;
 
             // follow the lca path, while looking for a shortcut to reduce travel time
             // TODO: skip parts of path to reduce travel even more
-            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.BRANCH_ENTRY);
+            List<Point2F> knots = new List<Point2F>();
 
-            p.Add(current);
+            Point2F current = src.End;
+            Point2F end = dst.Start;
+
             foreach (Slice s in Slice_utils.Find_lca_path(dst, src))
             {
                 if (may_shortcut(current, end, ctx))
                     break;
                 current = s.Center;
-                p.Add(current);
+                knots.Add(current);
             }
-            p.Add(end);
 
-            return p;
-        }        
+            return knots;
+        }
 
-        private Pocket_path_item trace_return_to_base(Slice root_slice, Slice last_slice, Branch_tracer_context ctx)
+        private List<Point2F> trace_return_to_base(Slice root_slice, Slice last_slice, Branch_tracer_context ctx)
         {
             Point2F current = last_slice.End;
             Point2F end = root_slice.Center;
-
-            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.RETURN_TO_BASE);
 
             List<Point2F> path = new List<Point2F>();
 
             if (last_slice != root_slice)
             {
                 for (Slice s = last_slice.Parent; s != root_slice; s = s.Parent)
-                    path.Add(s.Center);
+                {
+                    if (may_shortcut(current, end, ctx))
+                        break;
+                    current = s.Center;
+                    path.Add(current);
+                }
             }
 
-            p.Add(current);
-            foreach (Point2F pt in path)
-            {
-                if (may_shortcut(current, end, ctx))
-                    break;
-                current = pt;
-                p.Add(current);
-            }
-            p.Add(end);
-
-            return p;
+            path.Add(end);
+            return path;
         }
 
         private int evaluate_possible_slice(Branch_tracer_context ctx, Point2F pt)
@@ -296,7 +230,7 @@ namespace Matmill
 
                 // generate branch entry after finding the first valid slice (before populating ready slices)
                 if (branch.Slices.Count == 0)
-                    branch.Entry = trace_branch_switch(candidate, ctx.Last_slice, ctx);                                    
+                    branch.Entry_path = trace_branch_entry(candidate, ctx.Last_slice, ctx);
 
                 branch.Slices.Add(candidate);
                 ctx.Add_slice(candidate);
@@ -387,158 +321,48 @@ namespace Matmill
             return may_shortcut(a, b, ctx.Find_intersecting_slices(a, b));
         }
 
-        private Pocket_path_item connect_slices_with_biarc(Slice dst, Slice src)
-        {
-            Point2F start = src.End;
-            Point2F end = dst.Start;
-            // unit normals to points
-            Vector2d vn_start = new Vector2d(src.Center, start).Unit();
-            Vector2d vn_end = new Vector2d(dst.Center, end).Unit();
-            // tangents to points
-            Vector2d vt_start;
-            Vector2d vt_end;
-            if (src.Dir == RotationDirection.CW)
-                vt_start = new Vector2d(vn_start.Y, -vn_start.X);
-            else
-                vt_start = new Vector2d(-vn_start.Y, vn_start.X);
-
-            if (dst.Dir == RotationDirection.CW)
-                vt_end = new Vector2d(vn_end.Y, -vn_end.X);
-            else
-                vt_end = new Vector2d(-vn_end.Y, vn_end.X);
-
-            Biarc2d biarc = new Biarc2d(start, vt_start, end, vt_end);
-
-            if (!is_biarc_inside_ball(biarc, src.Ball))
-                return null;
-
-            Pocket_path_item path = new Pocket_path_item(Pocket_path_item_type.SMOOTH_CHORD);
-            path.Add(biarc, _general_tolerance);
-            return path;
-        }
-
-        private Pocket_path_item connect_slices_with_chord(Slice dst, Slice src)
-        {
-            Pocket_path_item path = new Pocket_path_item(Pocket_path_item_type.CHORD);
-            path.Add(src.End);
-            path.Add(dst.Start);
-            return path;
-        }
-
-        private bool is_biarc_inside_ball(Biarc2d biarc, Circle2F ball)
-        {
-            if (biarc.Pm.DistanceTo(ball.Center) > ball.Radius)
-                return false;
-
-            Point2F start = biarc.P1;
-            Point2F end = biarc.P2;
-            Line2F insects;
-
-            if (biarc.Seg1 is Line2F)
-                insects = ball.LineIntersect((Line2F)biarc.Seg1);
-            else
-                insects = ((Arc2F)biarc.Seg1).CircleIntersect(ball);
-
-            if ((! insects.p1.IsUndefined) && insects.p1.DistanceTo(start) < _general_tolerance)
-                insects.p1 = Point2F.Undefined;
-            if ((!insects.p2.IsUndefined) && insects.p2.DistanceTo(start) < _general_tolerance)
-                insects.p2 = Point2F.Undefined;
-
-            if (!(insects.p1.IsUndefined && insects.p2.IsUndefined))
-                return false;
-
-            if (biarc.Seg2 is Line2F)
-                insects = ball.LineIntersect((Line2F)biarc.Seg2);
-            else
-                insects = ((Arc2F)biarc.Seg2).CircleIntersect(ball);
-
-            if ((!insects.p1.IsUndefined) && insects.p1.DistanceTo(end) < _general_tolerance)
-                insects.p1 = Point2F.Undefined;
-            if ((!insects.p2.IsUndefined) && insects.p2.DistanceTo(end) < _general_tolerance)
-                insects.p2 = Point2F.Undefined;
-
-            if (!(insects.p1.IsUndefined && insects.p2.IsUndefined))
-                return false;
-
-            return true;
-        }
-
-        private Pocket_path_item connect_slices(Slice dst, Slice src)
-        {
-            Pocket_path_item path;
-
-            // do not emit biarcs if distance is too small ( < 5 % of the tool diameter)
-            if (_should_smooth_chords && src.End.DistanceTo(dst.Start) > _tool_r * 0.1)
-            {
-                path = connect_slices_with_biarc(dst, src);
-                if (path != null)
-                    return path;
-                // fallback to the straight chord
-                Logger.warn("biarc is outside the slice, replacing with chord");
-            }
-
-            return connect_slices_with_chord(dst, src);
-        }
-
         private Pocket_path generate_path(List<Branch> traverse, Branch_tracer_context ctx)
         {
-            Slice last_slice = null;
+            Pocket_path_generator gen;
 
-            Pocket_path path = new Pocket_path();
+            if (!_should_smooth_chords)
+                gen = new Pocket_path_generator(_general_tolerance);
+            else
+                gen = new Pocket_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
             Slice root_slice = traverse[0].Slices[0];
 
-            // emit spiral toolpath for root
-            Pocket_path_item spiral = new Pocket_path_item(Pocket_path_item_type.SPIRAL);
-            foreach (Biarc2d biarc in Spiral_generator.Gen_archimedean_spiral(root_slice.Center, root_slice.Start, _max_ted, _initial_dir))
-                spiral.Add(biarc, _general_tolerance);
-            path.Add(spiral);
+            gen.Append_spiral(root_slice.Center, root_slice.End, _max_ted, _initial_dir);
 
-            for (int bidx = 0; bidx < traverse.Count; bidx++)
+            Slice last_slice = null;
+
+            foreach (Branch b in traverse)
             {
-                Branch b = traverse[bidx];
+                if (b.Slices.Count == 0)
+                    continue;
 
-                if (_should_emit_debug_medial_axis)
+                Slice s = b.Slices[0];
+
+                if (s == root_slice)
+                    gen.Append_root_slice(s);
+                else if (s.Parent != last_slice)
+                    gen.Append_switch_slice(s, b.Entry_path);
+                else
+                    gen.Append_slice(s);
+
+                for (int slice_idx = 1; slice_idx < b.Slices.Count; slice_idx++)
                 {
-                    Pocket_path_item mat = new Pocket_path_item(Pocket_path_item_type.DEBUG_MEDIAL_AXIS, b.To_polyline());
-                    path.Add(mat);
+                    s = b.Slices[slice_idx];
+                    gen.Append_slice(s);
                 }
 
-                // emit branch entry path
-                if (b.Entry != null)
-                    path.Add(b.Entry);
-
-                for (int sidx = 0; sidx < b.Slices.Count; sidx++)
-                {
-                    Slice s = b.Slices[sidx];
-
-                    // connect following branch slices with chords
-                    if (sidx > 0)
-                        path.Add(connect_slices(s, last_slice));
-
-                    // emit segments
-                    for (int segidx = 0; segidx < s.Segments.Count; segidx++)
-                    {
-                        // connect segments
-                        if (segidx > 0)
-                        {
-                            Pocket_path_item shortcut = new Pocket_path_item(Pocket_path_item_type.SLICE_SHORTCUT);
-                            shortcut.Add(s.Segments[segidx - 1].P2);
-                            shortcut.Add(s.Segments[segidx].P1);
-                            path.Add(shortcut);
-                        }
-
-                        Pocket_path_item slice = new Pocket_path_item(Pocket_path_item_type.SLICE);
-                        slice.Add(s.Segments[segidx], _general_tolerance);
-                        path.Add(slice);
-                    }
-                    last_slice = s;
-                }
+                last_slice = s;
             }
 
-            path.Add(trace_return_to_base(root_slice, last_slice, ctx));
+            List<Point2F> return_path = trace_return_to_base(root_slice, last_slice, ctx);
+            gen.Append_return_to_base(return_path);
 
-            return path;
+            return gen.Path;
         }
 
         public Pocket_path run()

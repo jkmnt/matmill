@@ -48,7 +48,7 @@ namespace Matmill
         public delegate int Branch_visitor(Point2F pt);
         public readonly List<Slice> Slices = new List<Slice>();
 
-        public Pocket_path_item Entry;
+        public List<Point2F> Entry_path = null;
 
         public bool Is_leaf { get { return _children.Count == 0; } }
 
