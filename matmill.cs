@@ -75,19 +75,22 @@ namespace Matmill
                 if (b.Slices.Count == 0)
                     continue;
 
-                Slice s = b.Slices[0];
+                Ordered_slice s = b.Slices[0];
 
                 if (s == root_slice)
                     gen.Append_root_slice(s);
-                else if (s.Parent != last_slice)
-                    gen.Append_switch_slice(s, b.Entry_path);
+                else if (s.Guide != null)
+                    gen.Append_switch_slice(s, s.Guide);
                 else
                     gen.Append_slice(s);
 
                 for (int slice_idx = 1; slice_idx < b.Slices.Count; slice_idx++)
                 {
                     s = b.Slices[slice_idx];
-                    gen.Append_slice(s);
+                    if (s.Guide != null)
+                        gen.Append_switch_slice(s, s.Guide);
+                    else
+                        gen.Append_slice(s);
                 }
 
                 last_slice = s;
@@ -137,7 +140,7 @@ namespace Matmill
             Logger.log("generating slices");
             slicer.Run(traverse);
 
-            Logger.log("generating path");            
+            Logger.log("generating path");
             return generate_path(traverse, slicer);
         }
 

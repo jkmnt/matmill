@@ -12,17 +12,21 @@ namespace Matmill
         private readonly Ordered_slice _parent;
 
         public Ordered_slice Parent { get { return _parent; } }
+        public List<Point2F> Guide;
 
         public Ordered_slice(Ordered_slice parent, Point2F center, double radius, RotationDirection dir, double tool_r, Point2F magnet) : base(parent, center, radius, dir, tool_r, magnet)
         {
             _parent = parent;
-
         }
 
         public Ordered_slice(Point2F center, double radius, RotationDirection dir) : base(center, radius, dir)
         {
             _parent = null;
+        }
 
+        public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
+        {
+            base.Refine(_parent, colliding_slices, end_clearance, tool_r);
         }
     }
 
@@ -52,17 +56,17 @@ namespace Matmill
         // NOTE: radius getter may return 0 if radius is too small or invalid
         public Get_radius_delegate Get_radius = x => 0;
 
-        private static List<Slice> find_lca_path(Slice dst, Slice src)
+        private static List<Slice> find_lca_path(Ordered_slice dst, Ordered_slice src)
         {
             List<Slice> path = new List<Slice>();
 
             List<Slice> src_ancestry = new List<Slice>();
             List<Slice> dst_ancestry = new List<Slice>();
 
-            for (Slice s = src.Parent; s != null; s = s.Parent)
+            for (Ordered_slice s = src.Parent; s != null; s = s.Parent)
                 src_ancestry.Insert(0, s);
 
-            for (Slice s = dst.Parent; s != null; s = s.Parent)
+            for (Ordered_slice s = dst.Parent; s != null; s = s.Parent)
                 dst_ancestry.Insert(0, s);
 
             int lca;
@@ -130,7 +134,7 @@ namespace Matmill
             insert_in_t4(s);
         }
 
-        private List<Point2F> trace_branch_entry(Slice dst, Slice src)
+        private List<Point2F> trace_branch_entry(Ordered_slice dst, Ordered_slice src)
         {
             if (dst.Parent == src)  // simple continuation
                 return null;
@@ -153,7 +157,7 @@ namespace Matmill
             return knots;
         }
 
-        private List<Point2F> trace_return_to_base(Slice root_slice, Slice last_slice)
+        private List<Point2F> trace_return_to_base(Ordered_slice root_slice, Ordered_slice last_slice)
         {
             Point2F current = last_slice.End;
             Point2F end = root_slice.Center;
@@ -162,7 +166,7 @@ namespace Matmill
 
             if (last_slice != root_slice)
             {
-                for (Slice s = last_slice.Parent; s != root_slice; s = s.Parent)
+                for (Ordered_slice s = last_slice.Parent; s != root_slice; s = s.Parent)
                 {
                     if (may_shortcut(current, end))
                         break;
@@ -287,7 +291,7 @@ namespace Matmill
 
         private void trace_branch(Branch branch)
         {
-            _parent_slice = (Ordered_slice) branch.Get_upstream_slice();
+            _parent_slice = branch.Get_upstream_slice();
 
             if (_parent_slice == null)   // the very start of trace
             {
@@ -336,7 +340,7 @@ namespace Matmill
 
                 // generate branch entry after finding the first valid slice (before populating ready slices)
                 if (branch.Slices.Count == 0)
-                    branch.Entry_path = trace_branch_entry(_candidate, _last_slice);
+                    _candidate.Guide = trace_branch_entry(_candidate, _last_slice);
 
                 branch.Slices.Add(_candidate);
                 add_slice(_candidate);

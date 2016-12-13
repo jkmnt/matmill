@@ -507,7 +507,7 @@ namespace Trochopock
 
                     case Pocket_path_item_type.CHORD:
                     case Pocket_path_item_type.SMOOTH_CHORD:
-                    case Pocket_path_item_type.BRANCH_ENTRY:
+                    case Pocket_path_item_type.GUIDE:
                     case Pocket_path_item_type.SLICE_SHORTCUT:
                         moves_len += len;
                         break;
@@ -678,7 +678,7 @@ namespace Trochopock
                 case Pocket_path_item_type.CHORD:
                 case Pocket_path_item_type.SMOOTH_CHORD:
                 case Pocket_path_item_type.SLICE_SHORTCUT:
-                case Pocket_path_item_type.BRANCH_ENTRY:
+                case Pocket_path_item_type.GUIDE:
                     base.CutFeedrate = chord_feedrate;
                     break;
 

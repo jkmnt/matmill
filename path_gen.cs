@@ -14,7 +14,7 @@ namespace Matmill
         SPIRAL,
         CHORD,
         SMOOTH_CHORD,
-        BRANCH_ENTRY,
+        GUIDE,
         SLICE_SHORTCUT,
         RETURN_TO_BASE,
         DEBUG_MEDIAL_AXIS,
@@ -121,7 +121,7 @@ namespace Matmill
             if (entry == null)
                 throw new Exception("attempt to install switch slice with the empty entry path");
 
-            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.BRANCH_ENTRY);
+            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.GUIDE);
 
             p.Add(_last_slice.End);
             foreach (Point2F pt in entry)

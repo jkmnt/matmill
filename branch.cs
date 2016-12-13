@@ -46,9 +46,7 @@ namespace Matmill
         //--- own interface
 
         public delegate int Branch_visitor(Point2F pt);
-        public readonly List<Slice> Slices = new List<Slice>();
-
-        public List<Point2F> Entry_path = null;
+        public readonly List<Ordered_slice> Slices = new List<Ordered_slice>();        
 
         public bool Is_leaf { get { return _children.Count == 0; } }
 
@@ -69,7 +67,7 @@ namespace Matmill
             return dist;
         }
 
-        public Slice Get_upstream_slice()
+        public Ordered_slice Get_upstream_slice()
         {
             Branch b;
 
