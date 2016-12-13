@@ -24,7 +24,7 @@ namespace Matmill
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
         private bool _should_smooth_chords = false;
-        private bool _should_emit_debug_medial_axis = false;
+        //private bool _should_emit_debug_medial_axis = false;
         private double _slice_leadin_angle = 3 * Math.PI / 180;
         private double _slice_leadout_angle = 0.5 * Math.PI / 180;
 
@@ -50,278 +50,12 @@ namespace Matmill
             get { return 0.1 * _tool_r; } // 5 % of tool diameter is seems to be ok
         }
 
-        private class Branch_tracer_context
-        {
-            private readonly T4 _ready_slices;
-
-            public Slice Root_slice = null;
-            public Slice Parent_slice = null;
-            public Slice Last_slice = null;
-            public Slice Candidate = null;
-
-            private void insert_in_t4(Slice s)
-            {
-                Point2F min = Point2F.Undefined;
-                Point2F max = Point2F.Undefined;
-                s.Get_ball_extrema(ref min, ref max);
-                T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
-                _ready_slices.Add(rect, s);
-            }
-
-            public List<Slice> Find_colliding_slices(Slice s)
-            {
-                Point2F min = Point2F.Undefined;
-                Point2F max = Point2F.Undefined;
-                s.Get_extrema(ref min, ref max);
-
-                T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
-                return _ready_slices.Get_colliding_objects<Slice>(rect);
-            }
-
-            public List<Slice> Find_intersecting_slices(Point2F a, Point2F b)
-            {
-                T4_rect rect = new T4_rect(Math.Min(a.X, b.X),
-                                           Math.Min(a.Y, b.Y),
-                                           Math.Max(a.X, b.X),
-                                           Math.Max(a.Y, b.Y));
-
-                return _ready_slices.Get_colliding_objects<Slice>(rect);
-            }
-
-            public void Add_slice(Slice s)
-            {
-                if (Root_slice == null)
-                    Root_slice = s;
-                Parent_slice = s;
-                Last_slice = s;
-                insert_in_t4(s);
-            }
-
-            public Branch_tracer_context(T4_rect bbox)
-            {
-                _ready_slices = new T4(bbox);
-            }
-        }
-
         private double get_mic_radius(Point2F pt)
         {
             return _topo.Get_dist_to_wall(pt) - _tool_r - _margin;
         }
 
-        private List<Point2F> trace_branch_entry(Slice dst, Slice src, Branch_tracer_context ctx)
-        {
-            if (dst.Parent == src)  // simple continuation
-                return null;
-
-            // follow the lca path, while looking for a shortcut to reduce travel time
-            // TODO: skip parts of path to reduce travel even more
-            List<Point2F> knots = new List<Point2F>();
-
-            Point2F current = src.End;
-            Point2F end = dst.Start;
-
-            foreach (Slice s in Slice_utils.Find_lca_path(dst, src))
-            {
-                if (may_shortcut(current, end, ctx))
-                    break;
-                current = s.Center;
-                knots.Add(current);
-            }
-
-            return knots;
-        }
-
-        private List<Point2F> trace_return_to_base(Slice root_slice, Slice last_slice, Branch_tracer_context ctx)
-        {
-            Point2F current = last_slice.End;
-            Point2F end = root_slice.Center;
-
-            List<Point2F> path = new List<Point2F>();
-
-            if (last_slice != root_slice)
-            {
-                for (Slice s = last_slice.Parent; s != root_slice; s = s.Parent)
-                {
-                    if (may_shortcut(current, end, ctx))
-                        break;
-                    current = s.Center;
-                    path.Add(current);
-                }
-            }
-
-            path.Add(end);
-            return path;
-        }
-
-        private int evaluate_possible_slice(Branch_tracer_context ctx, Point2F pt)
-        {
-            double radius = get_mic_radius(pt);
-
-            if (radius < _min_passable_mic_radius) return -1; // assuming the branch is always starting from passable mics, so it's a narrow channel and we should be more conservative, go left
-
-            Slice s = new Slice(ctx.Parent_slice, pt, radius, _dir, _tool_r, ctx.Last_slice);
-
-            if (s.Placement != Slice_placement.NORMAL)
-            {
-                if (s.Placement == Slice_placement.INSIDE_ANOTHER) return 1;    // go right
-                if (s.Placement == Slice_placement.TOO_FAR) return -1;          // go left
-
-                throw new Exception("unknown slice placement");
-            }
-            // intersection
-            // XXX: is this candidate is better than the last ?
-            ctx.Candidate = s;
-            s.Refine(ctx.Find_colliding_slices(s), _tool_r, _tool_r);
-
-            if (s.Max_ted > _max_ted) return -1;                                            // overshoot, go left
-            if ((_max_ted - s.Max_ted) / _max_ted > TED_TOLERANCE_PERCENTAGE) return 1;     // undershoot outside the strict TED tolerance, go right
-
-            return 0;                                                                       // good slice inside the tolerance, stop search
-        }
-
-        private void trace_branch(Branch_tracer_context ctx, Branch branch)
-        {
-            ctx.Parent_slice = branch.Get_upstream_slice();
-
-            if (ctx.Parent_slice == null)   // the very start of trace
-            {
-                Point2F start_pt = branch.Start;
-                Slice s = new Slice(start_pt, get_mic_radius(start_pt), _initial_dir);
-                branch.Slices.Add(s);
-                ctx.Add_slice(s);
-            }
-
-            if (ctx.Parent_slice == null)
-                throw new Exception("parent slice is null - shouldn't be");
-            if (ctx.Last_slice == null)
-                throw new Exception("last slice is null - shouldn't be");
-
-            double t = 0;
-
-            while (true)
-            {
-                ctx.Candidate = null;
-                branch.Bisect(pt => evaluate_possible_slice(ctx, pt), ref t, _general_tolerance);
-                Slice candidate = ctx.Candidate;
-
-                if (candidate == null) return;
-                if (candidate.Max_ted < _min_ted) return; // discard slice if outside the specified min TED
-
-                // discard slice if outside the final allowed percentage
-                double err = (candidate.Max_ted - _max_ted) / _max_ted;
-                if (err > FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE)
-                {
-                    Logger.warn("failed to create slice within stepover limit. stopping slicing the branch");
-                    return;
-                }
-                // if last slice was a root slice, adjust root slice startpoint to remove extra travel and
-                // append leadout to the candindate. leadin is not needed, since join with root will be exact
-                // otherwise append both leadin and leadout
-                if (ctx.Last_slice.Parent == null)
-                {
-                    Logger.log("changing startpoint of root slice");
-                    ctx.Last_slice.Change_startpoint(candidate.Start);
-                    candidate.Append_leadin_and_leadout(0, _slice_leadout_angle);
-                }
-                else
-                {
-                    candidate.Append_leadin_and_leadout(_slice_leadin_angle, _slice_leadout_angle);
-                }
-
-                // generate branch entry after finding the first valid slice (before populating ready slices)
-                if (branch.Slices.Count == 0)
-                    branch.Entry_path = trace_branch_entry(candidate, ctx.Last_slice, ctx);
-
-                branch.Slices.Add(candidate);
-                ctx.Add_slice(candidate);
-            }
-        }
-
-        // check if it is possible to shortcut from a to b via while
-        // staying inside the slice balls
-        // we are collecting all the intersections and tracking the list of balls we're inside
-        // at any given point. If list becomes empty, we can't shortcut
-        private bool may_shortcut(Point2F a, Point2F b, List<Slice> colliders)
-        {
-            Line2F path = new Line2F(a, b);
-            SortedList<double, List<Slice>> intersections = new SortedList<double, List<Slice>>();
-            List<Slice> running_collides = new List<Slice>();
-
-            foreach (Slice s in colliders)
-            {
-                Line2F insects = s.Ball.LineIntersect(path, _general_tolerance);
-
-                if (insects.p1.IsUndefined && insects.p2.IsUndefined)
-                {
-                    // no intersections: check if whole path lay inside the circle
-                    if (   a.DistanceTo(s.Center) < s.Radius + _general_tolerance
-                        && b.DistanceTo(s.Center) < s.Radius + _general_tolerance)
-                        return true;
-                }
-                else if (insects.p1.IsUndefined || insects.p2.IsUndefined)
-                {
-                    // single intersection. one of the path ends must be inside the circle, otherwise it is a tangent case
-                    // and should be ignored
-                    if (a.DistanceTo(s.Center) < s.Radius + _general_tolerance)
-                    {
-                        running_collides.Add(s);
-                    }
-                    else if (b.DistanceTo(s.Center) < s.Radius + _general_tolerance)
-                    {
-                        ;
-                    }
-                    else
-                    {
-                        continue;
-                    }
-
-                    Point2F c = insects.p1.IsUndefined ? insects.p2 : insects.p1;
-                    double d = c.DistanceTo(a);
-                    if (!intersections.ContainsKey(d))
-                        intersections.Add(d, new List<Slice>());
-                    intersections[d].Add(s);
-                }
-                else
-                {
-                    // double intersection
-                    double d = insects.p1.DistanceTo(a);
-                    if (! intersections.ContainsKey(d))
-                        intersections.Add(d, new List<Slice>());
-                    intersections[d].Add(s);
-
-                    d = insects.p2.DistanceTo(a);
-                    if (! intersections.ContainsKey(d))
-                        intersections.Add(d, new List<Slice>());
-                    intersections[d].Add(s);
-                }
-            }
-
-            if (running_collides.Count == 0)
-                return false;
-
-            foreach (var ins in intersections)
-            {
-                foreach (Slice s in ins.Value)
-                {
-                    if (running_collides.Contains(s))
-                        running_collides.Remove(s);
-                    else
-                        running_collides.Add(s);
-                }
-
-                if (running_collides.Count == 0 && (ins.Key + _general_tolerance < a.DistanceTo(b)))
-                    return false;
-            }
-
-            return true;
-        }
-
-        private bool may_shortcut(Point2F a, Point2F b, Branch_tracer_context ctx)
-        {
-            return may_shortcut(a, b, ctx.Find_intersecting_slices(a, b));
-        }
-
-        private Pocket_path generate_path(List<Branch> traverse, Branch_tracer_context ctx)
+        private Pocket_path generate_path(List<Branch> traverse, Slicer slicer)
         {
             Pocket_path_generator gen;
 
@@ -359,10 +93,16 @@ namespace Matmill
                 last_slice = s;
             }
 
-            List<Point2F> return_path = trace_return_to_base(root_slice, last_slice, ctx);
-            gen.Append_return_to_base(return_path);
+            gen.Append_return_to_base(slicer.Gen_return_path());
 
             return gen.Path;
+        }
+
+        private double radius_getter(Point2F pt)
+        {
+            double radius = get_mic_radius(pt);
+            if (radius < _min_passable_mic_radius) return 0;
+            return radius;
         }
 
         public Pocket_path run()
@@ -383,14 +123,22 @@ namespace Matmill
 
             List<Branch> traverse = root.Df_traverse();
 
-            Branch_tracer_context tracer_ctx = new Branch_tracer_context(_topo.Bbox);
+            Slicer slicer = new Slicer(_topo.Bbox);
+            slicer.Dir = _dir;
+            slicer.General_tolerance = _general_tolerance;
+            slicer.Initial_dir = _initial_dir;
+            slicer.Max_ted = _max_ted;
+            slicer.Min_ted = _min_ted;
+            slicer.Slice_leadin_angle = _slice_leadin_angle;
+            slicer.Slice_leadout_angle = _slice_leadout_angle;
+            slicer.Tool_r = _tool_r;
+            slicer.Get_radius = radius_getter;
 
             Logger.log("generating slices");
-            foreach (Branch b in traverse)
-                trace_branch(tracer_ctx, b);
+            slicer.Run(traverse);
 
-            Logger.log("generating path");
-            return generate_path(traverse, tracer_ctx);
+            Logger.log("generating path");            
+            return generate_path(traverse, slicer);
         }
 
         public Pocket_generator(Polyline outline, Polyline[] islands)

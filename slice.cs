@@ -331,7 +331,7 @@ namespace Matmill
             create_arc_circle(p1, Dir);
         }
 
-        public Slice(Slice parent, Point2F center, double radius, RotationDirection dir, double tool_r, Slice last_slice)
+        public Slice(Slice parent, Point2F center, double radius, RotationDirection dir, double tool_r, Point2F magnet)
         {
             _parent = parent;
             _ball = new Circle2F(center, radius);
@@ -378,13 +378,13 @@ namespace Matmill
 
             if (dir == RotationDirection.Unknown)
             {
-                if (last_slice == null)
+                if (magnet.IsUndefined)
                 {
                     dir = RotationDirection.CCW;    // just something
                 }
                 else
                 {
-                    if (last_slice.End.DistanceTo(insects.p1) < last_slice.End.DistanceTo(insects.p2))  // match, use existing dir
+                    if (insects.p1.DistanceTo(magnet) < insects.p2.DistanceTo(magnet))  // match, use existing dir
                         dir = default_dir;
                     else
                         dir = (default_dir == RotationDirection.CCW) ? RotationDirection.CW : RotationDirection.CCW;   // flip

@@ -7,20 +7,38 @@ using Tree4;
 
 namespace Matmill
 {
+    class Ordered_slice : Slice
+    {
+        private readonly Ordered_slice _parent;
+
+        public Ordered_slice Parent { get { return _parent; } }
+
+        public Ordered_slice(Ordered_slice parent, Point2F center, double radius, RotationDirection dir, double tool_r, Point2F magnet) : base(parent, center, radius, dir, tool_r, magnet)
+        {
+            _parent = parent;
+
+        }
+
+        public Ordered_slice(Point2F center, double radius, RotationDirection dir) : base(center, radius, dir)
+        {
+            _parent = null;
+
+        }
+    }
+
     class Slicer
     {
-        public delegate double Get_radius_delegate(Point2F pt);        
+        public delegate double Get_radius_delegate(Point2F pt);
 
         private const double TED_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
         private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
 
         private readonly T4 _ready_slices;
 
-        private Slice _root_slice = null;
-        private Slice _parent_slice = null;
-        private Slice _last_slice = null;
-        private Slice _candidate = null;
-
+        private Ordered_slice _root_slice = null;
+        private Ordered_slice _parent_slice = null;
+        private Ordered_slice _last_slice = null;
+        private Ordered_slice _candidate = null;
 
         public double Slice_leadin_angle = 3 * Math.PI / 180;
         public double Slice_leadout_angle = 0.5 * Math.PI / 180;
@@ -81,6 +99,35 @@ namespace Matmill
             s.Get_ball_extrema(ref min, ref max);
             T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
             _ready_slices.Add(rect, s);
+        }
+
+        private List<Slice> find_colliding_slices(Slice s)
+        {
+            Point2F min = Point2F.Undefined;
+            Point2F max = Point2F.Undefined;
+            s.Get_extrema(ref min, ref max);
+
+            T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
+            return _ready_slices.Get_colliding_objects<Slice>(rect);
+        }
+
+        private List<Slice> find_intersecting_slices(Point2F a, Point2F b)
+        {
+            T4_rect rect = new T4_rect(Math.Min(a.X, b.X),
+                                       Math.Min(a.Y, b.Y),
+                                       Math.Max(a.X, b.X),
+                                       Math.Max(a.Y, b.Y));
+
+            return _ready_slices.Get_colliding_objects<Slice>(rect);
+        }
+
+        private void add_slice(Ordered_slice s)
+        {
+            if (_root_slice == null)
+                _root_slice = s;
+            _parent_slice = s;
+            _last_slice = s;
+            insert_in_t4(s);
         }
 
         private List<Point2F> trace_branch_entry(Slice dst, Slice src)
@@ -209,7 +256,7 @@ namespace Matmill
 
         private bool may_shortcut(Point2F a, Point2F b)
         {
-            return may_shortcut(a, b, Find_intersecting_slices(a, b));
+            return may_shortcut(a, b, find_intersecting_slices(a, b));
         }
 
         private int evaluate_possible_slice(Point2F pt)
@@ -218,7 +265,7 @@ namespace Matmill
 
             if (radius <= 0) return -1; // assuming the branch is always starting from passable mics, so it's a narrow channel and we should be more conservative, go left
 
-            Slice s = new Slice(_parent_slice, pt, radius, Dir, Tool_r, _last_slice);
+            Ordered_slice s = new Ordered_slice(_parent_slice, pt, radius, Dir, Tool_r, _last_slice != null ? _last_slice.End : Point2F.Undefined);
 
             if (s.Placement != Slice_placement.NORMAL)
             {
@@ -230,7 +277,7 @@ namespace Matmill
             // intersection
             // XXX: is this candidate is better than the last ?
             _candidate = s;
-            s.Refine(Find_colliding_slices(s), Tool_r, Tool_r);
+            s.Refine(find_colliding_slices(s), Tool_r, Tool_r);
 
             if (s.Max_ted > Max_ted) return -1;                                            // overshoot, go left
             if ((Max_ted - s.Max_ted) / Max_ted > TED_TOLERANCE_PERCENTAGE) return 1;     // undershoot outside the strict TED tolerance, go right
@@ -240,14 +287,14 @@ namespace Matmill
 
         private void trace_branch(Branch branch)
         {
-            _parent_slice = branch.Get_upstream_slice();
+            _parent_slice = (Ordered_slice) branch.Get_upstream_slice();
 
             if (_parent_slice == null)   // the very start of trace
             {
                 Point2F start_pt = branch.Start;
-                Slice s = new Slice(start_pt, Get_radius(start_pt), Initial_dir);
+                Ordered_slice s = new Ordered_slice(start_pt, Get_radius(start_pt), Initial_dir);
                 branch.Slices.Add(s);
-                Add_slice(s);
+                add_slice(s);
             }
 
             if (_parent_slice == null)
@@ -261,18 +308,17 @@ namespace Matmill
             {
                 _candidate = null;
                 branch.Bisect(pt => evaluate_possible_slice(pt), ref t, General_tolerance);
-                Slice candidate = _candidate;
 
-                if (candidate == null) return;
-                if (candidate.Max_ted < Min_ted) return; // discard slice if outside the specified min TED
+                if (_candidate == null) return;
+                if (_candidate.Max_ted < Min_ted) return; // discard slice if outside the specified min TED
 
                 // discard slice if outside the final allowed percentage
-                double err = (candidate.Max_ted - Max_ted) / Max_ted;
+                double err = (_candidate.Max_ted - Max_ted) / Max_ted;
                 if (err > FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE)
                 {
                     Logger.warn("failed to create slice within stepover limit. stopping slicing the branch");
                     return;
-                }                
+                }
 
                 // if last slice was a root slice, adjust root slice startpoint to remove extra travel and
                 // append leadout to the candindate. leadin is not needed, since join with root will be exact
@@ -280,61 +326,37 @@ namespace Matmill
                 if (_last_slice.Parent == null)
                 {
                     Logger.log("changing startpoint of root slice");
-                    _last_slice.Change_startpoint(candidate.Start);
-                    candidate.Append_leadin_and_leadout(0, Slice_leadout_angle);
+                    _last_slice.Change_startpoint(_candidate.Start);
+                    _candidate.Append_leadin_and_leadout(0, Slice_leadout_angle);
                 }
                 else
                 {
-                    candidate.Append_leadin_and_leadout(Slice_leadin_angle, Slice_leadout_angle);
+                    _candidate.Append_leadin_and_leadout(Slice_leadin_angle, Slice_leadout_angle);
                 }
 
                 // generate branch entry after finding the first valid slice (before populating ready slices)
                 if (branch.Slices.Count == 0)
-                    branch.Entry_path = trace_branch_entry(candidate, _last_slice);
+                    branch.Entry_path = trace_branch_entry(_candidate, _last_slice);
 
-                branch.Slices.Add(candidate);
-                Add_slice(candidate);
+                branch.Slices.Add(_candidate);
+                add_slice(_candidate);
             }
         }
 
-        public List<Slice> Find_colliding_slices(Slice s)
+        public List<Point2F> Gen_return_path()
         {
-            Point2F min = Point2F.Undefined;
-            Point2F max = Point2F.Undefined;
-            s.Get_extrema(ref min, ref max);
-
-            T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
-            return _ready_slices.Get_colliding_objects<Slice>(rect);
+            return trace_return_to_base(_root_slice, _last_slice);
         }
 
-        public List<Slice> Find_intersecting_slices(Point2F a, Point2F b)
+        public void Run(List<Branch> traverse)
         {
-            T4_rect rect = new T4_rect(Math.Min(a.X, b.X),
-                                       Math.Min(a.Y, b.Y),
-                                       Math.Max(a.X, b.X),
-                                       Math.Max(a.Y, b.Y));
-
-            return _ready_slices.Get_colliding_objects<Slice>(rect);
-        }
-
-        public void Add_slice(Slice s)
-        {
-            if (_root_slice == null)
-                _root_slice = s;
-            _parent_slice = s;
-            _last_slice = s;
-            insert_in_t4(s);
+            foreach (Branch b in traverse)
+                trace_branch(b);
         }
 
         public Slicer(T4_rect bbox)
         {
-            _ready_slices = new T4(bbox);            
-        }        
-        
-        void Run(List<Branch> traverse)
-        {
-            foreach (Branch b in traverse)
-                trace_branch(b);
+            _ready_slices = new T4(bbox);
         }
     }
 }
