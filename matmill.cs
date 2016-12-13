@@ -1,10 +1,7 @@
 ﻿using System;
-using System.Collections.Generic;
 
 using CamBam.CAD;
 using CamBam.Geom;
-
-using Tree4;
 
 namespace Matmill
 {
@@ -37,13 +34,7 @@ namespace Matmill
         public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
-        public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}
-
-        private RotationDirection _initial_dir
-        {
-            // since unknown is 'dont care', CW is ok
-            get { return _dir != RotationDirection.Unknown ? _dir : RotationDirection.CW; }
-        }
+        public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}        
 
         private double _min_passable_mic_radius
         {
@@ -55,7 +46,7 @@ namespace Matmill
             return _topo.Get_dist_to_wall(pt) - _tool_r - _margin;
         }
 
-        private Pocket_path generate_path(List<Branch> traverse, Slicer slicer)
+        private Pocket_path generate_path(Slicer slicer)
         {
             Pocket_path_generator gen;
 
@@ -63,39 +54,16 @@ namespace Matmill
                 gen = new Pocket_path_generator(_general_tolerance);
             else
                 gen = new Pocket_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
+            
+            gen.Append_spiral(slicer.Root_slice.Center, slicer.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+            gen.Append_root_slice(slicer.Root_slice);            
 
-            Slice root_slice = traverse[0].Slices[0];
-
-            gen.Append_spiral(root_slice.Center, root_slice.End, _max_ted, _initial_dir);
-
-            Slice last_slice = null;
-
-            foreach (Branch b in traverse)
+            for (int i = 1; i < slicer.Sequence.Count; i++)
             {
-                if (b.Slices.Count == 0)
-                    continue;
-
-                Ordered_slice s = b.Slices[0];
-
-                if (s == root_slice)
-                    gen.Append_root_slice(s);
-                else if (s.Guide != null)
-                    gen.Append_switch_slice(s, s.Guide);
-                else
-                    gen.Append_slice(s);
-
-                for (int slice_idx = 1; slice_idx < b.Slices.Count; slice_idx++)
-                {
-                    s = b.Slices[slice_idx];
-                    if (s.Guide != null)
-                        gen.Append_switch_slice(s, s.Guide);
-                    else
-                        gen.Append_slice(s);
-                }
-
-                last_slice = s;
+                Slice s = slicer.Sequence[i];
+                gen.Append_slice(s, s.Guide);                    
             }
-
+                        
             gen.Append_return_to_base(slicer.Gen_return_path());
 
             return gen.Path;
@@ -115,33 +83,25 @@ namespace Matmill
 
             Logger.log("building medial axis");
 
-            Branch root = new Branch(null);
-            bool is_ok = _topo.Build_medial_axis(root, _tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin);
+            Branch tree = new Branch(null);
+            bool is_ok = _topo.Build_medial_tree(tree, _tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin);
 
             if (! is_ok)
             {
                 Logger.warn("failed to build tree");
                 return null;
-            }
+            }            
 
-            List<Branch> traverse = root.Df_traverse();
-
-            Slicer slicer = new Slicer(_topo.Bbox);
-            slicer.Dir = _dir;
-            slicer.General_tolerance = _general_tolerance;
-            slicer.Initial_dir = _initial_dir;
-            slicer.Max_ted = _max_ted;
-            slicer.Min_ted = _min_ted;
+            Slicer slicer = new Slicer(_topo.Min, _topo.Max, _general_tolerance);                                    
             slicer.Slice_leadin_angle = _slice_leadin_angle;
-            slicer.Slice_leadout_angle = _slice_leadout_angle;
-            slicer.Tool_r = _tool_r;
+            slicer.Slice_leadout_angle = _slice_leadout_angle;            
             slicer.Get_radius = radius_getter;
 
             Logger.log("generating slices");
-            slicer.Run(traverse);
+            slicer.Run(tree, _tool_r, _max_ted, _min_ted, _dir);
 
             Logger.log("generating path");
-            return generate_path(traverse, slicer);
+            return generate_path(slicer);
         }
 
         public Pocket_generator(Polyline outline, Polyline[] islands)

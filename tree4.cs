@@ -341,7 +341,7 @@ namespace Tree4
                 rects.Add(occupant.Rect);
 
             return rects;
-        }
+        }            
 
         public T4(T4_rect rect)
         {

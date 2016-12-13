@@ -10,13 +10,20 @@ namespace Matmill
 {
     class Topographer
     {
+        private const double T4_MARGIN = 1.0;
+
         private readonly Polyline _outline;
         private readonly Polyline[] _islands;
         private readonly T4 _t4;
 
-        public T4_rect Bbox
+        public Point2F Min
         {
-            get { return _t4.Rect; }
+            get { return new Point2F(_t4.Rect.Xmin + T4_MARGIN, _t4.Rect.Ymin + T4_MARGIN); }
+        }
+
+        public Point2F Max
+        {
+            get { return new Point2F(_t4.Rect.Xmax - T4_MARGIN, _t4.Rect.Ymax - T4_MARGIN); }
         }
 
         private void insert_in_t4(Polyline p)
@@ -118,12 +125,12 @@ namespace Matmill
             return plist;
         }
 
-        public bool Build_medial_axis(Medial_branch root, double sample_step, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
+        public bool Build_medial_tree(Medial_branch tree, double sample_step, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
         {
             List<Point2F> samples = Get_samples(sample_step);
             Logger.log("got {0} points", samples.Count);
 
-            return Medial_builder.Build(root, this, samples, general_tolerance, startpoint, min_dist_to_wall);
+            return Medial_builder.Build(tree, this, samples, general_tolerance, startpoint, min_dist_to_wall);
         }
 
         public Topographer(Polyline outline, Polyline[] islands)
@@ -136,11 +143,111 @@ namespace Matmill
 
             _outline.GetExtrema(ref min, ref max);
 
-            _t4 = new T4(new T4_rect(min.X - 1, min.Y - 1, max.X + 1, max.Y + 1));
+            _t4 = new T4(new T4_rect(min.X - T4_MARGIN, min.Y - T4_MARGIN, max.X + T4_MARGIN, max.Y + T4_MARGIN));
 
             insert_in_t4(_outline);
             foreach (Polyline island in _islands)
                 insert_in_t4(island);
         }
-    }    
+    }
+
+    class Ballfield_topographer
+    {
+        private readonly T4 _t4;
+        private List<Circle2F> _ballfield;
+
+        // we are collecting all the intersections and tracking the list of balls we're inside
+        // at any given point. If list becomes empty, we can't shortcut
+        public bool Is_line_inside_region(Line2F line, double tolerance)
+        {
+            Point2F a = line.p1;
+            Point2F b = line.p2;
+
+            SortedList<double, List<Circle2F>> intersections = new SortedList<double, List<Circle2F>>();
+            List<Circle2F> running_balls = new List<Circle2F>();
+
+            foreach (Circle2F ball in _ballfield)
+            {
+                Line2F insects = ball.LineIntersect(line, tolerance);
+
+                if (insects.p1.IsUndefined && insects.p2.IsUndefined)
+                {
+                    // no intersections: check if whole path lay inside the circle
+                    if (a.DistanceTo(ball.Center) < ball.Radius + tolerance
+                        && b.DistanceTo(ball.Center) < ball.Radius + tolerance)
+                        return true;
+                }
+                else if (insects.p1.IsUndefined || insects.p2.IsUndefined)
+                {
+                    // single intersection. one of the path ends must be inside the circle, otherwise it is a tangent case
+                    // and should be ignored
+                    if (a.DistanceTo(ball.Center) < ball.Radius + tolerance)
+                    {
+                        running_balls.Add(ball);
+                    }
+                    else if (b.DistanceTo(ball.Center) < ball.Radius + tolerance)
+                    {
+                        ;
+                    }
+                    else
+                    {
+                        continue;
+                    }
+
+                    Point2F c = insects.p1.IsUndefined ? insects.p2 : insects.p1;
+                    double d = c.DistanceTo(a);
+                    if (!intersections.ContainsKey(d))
+                        intersections.Add(d, new List<Circle2F>());
+                    intersections[d].Add(ball);
+                }
+                else
+                {
+                    // double intersection
+                    double d = insects.p1.DistanceTo(a);
+                    if (!intersections.ContainsKey(d))
+                        intersections.Add(d, new List<Circle2F>());
+                    intersections[d].Add(ball);
+
+                    d = insects.p2.DistanceTo(a);
+                    if (!intersections.ContainsKey(d))
+                        intersections.Add(d, new List<Circle2F>());
+                    intersections[d].Add(ball);
+                }
+            }
+
+            if (running_balls.Count == 0)
+                return false;
+
+            foreach (var ins in intersections)
+            {
+                foreach (Circle2F s in ins.Value)
+                {
+                    if (running_balls.Contains(s))
+                        running_balls.Remove(s);
+                    else
+                        running_balls.Add(s);
+                }
+
+                if (running_balls.Count == 0 && (ins.Key + tolerance < a.DistanceTo(b)))
+                    return false;
+            }
+
+            return true;
+        }
+
+        public void Add(Circle2F ball, object obj)
+        {
+            T4_rect rect = new T4_rect(ball.Center.X - ball.Radius,
+                                       ball.Center.Y - ball.Radius,
+                                       ball.Center.X + ball.Radius,
+                                       ball.Center.Y + ball.Radius);
+            _t4.Add(rect, obj);
+        }
+
+        public Ballfield_topographer(Point2F min, Point2F max)
+        {
+            _t4 = new T4(new T4_rect(min.X - 1, min.Y - 1, max.X + 1, max.Y + 1));
+            //_ballfield = ballfield;
+        }
+    }
 }

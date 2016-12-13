@@ -114,28 +114,29 @@ namespace Matmill
         public void Append_root_slice(Slice slice)
         {
             append_slice(slice);
-        }
+        }        
 
-        public void Append_switch_slice(Slice slice, List<Point2F> entry)
+        public virtual void Append_slice(Slice slice, List<Point2F> guide)
         {
-            if (entry == null)
-                throw new Exception("attempt to install switch slice with the empty entry path");
+            if (_last_slice == null)
+                throw new Exception("attempt to install slice without the root slice");
 
-            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.GUIDE);
+            if (guide == null)
+            {
+                Path.Add(connect_slices(slice, _last_slice));
+            }
+            else
+            {
+                Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.GUIDE);
 
-            p.Add(_last_slice.End);
-            foreach (Point2F pt in entry)
-                p.Add(pt);
-            p.Add(slice.Start);
+                p.Add(_last_slice.End);
+                foreach (Point2F pt in guide)
+                    p.Add(pt);
+                p.Add(slice.Start);
 
-            Path.Add(p);
-
-            append_slice(slice);
-        }
-
-        public virtual void Append_slice(Slice slice)
-        {
-            Path.Add(connect_slices(slice, _last_slice));
+                Path.Add(p);
+            }
+            
             append_slice(slice);
         }
 
@@ -242,16 +243,20 @@ namespace Matmill
             return path;
         }
 
-        public override void Append_slice(Slice slice)
+        public override void Append_slice(Slice slice, List<Point2F> guide)
         {
-            Pocket_path_item biarc = smooth_connect_slices(slice, _last_slice);
+            if (guide == null)
+            {
+                Pocket_path_item biarc = smooth_connect_slices(slice, _last_slice);
+                if (biarc != null)
+                {
+                    Path.Add(biarc);
+                    append_slice(slice);
+                    return;
+                }
+            }
 
-            if (biarc != null)
-                Path.Add(biarc);
-            else
-                Path.Add(connect_slices(slice, _last_slice));
-
-            append_slice(slice);
+            base.Append_slice(slice, guide);            
         }
 
         public Pocket_path_smooth_generator(double general_tolerance, double min_arc_len) : base(general_tolerance)

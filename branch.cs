@@ -9,8 +9,7 @@ namespace Matmill
 {
     class Branch : Medial_branch
     {
-        private readonly Curve _curve = new Curve();
-        private readonly List<Branch> _children = new List<Branch>();
+        private readonly Curve _curve = new Curve();        
         private readonly Branch Parent = null;
 
         //--- Medial_branch interface
@@ -33,28 +32,27 @@ namespace Matmill
         public void Postprocess()
         {
             // sort children so the shortest branch comes first in df traverse
-            this._children.Sort((a, b) => a.Deep_distance.CompareTo(b.Deep_distance));
+            this.Children.Sort((a, b) => a.Deep_distance.CompareTo(b.Deep_distance));
         }
 
         public void Attach_to_parent()
         {
             if (this.Parent == null)
                 throw new Exception("attempt to attach orphaned branch");
-            this.Parent._children.Add(this);
+            this.Parent.Children.Add(this);
         }
 
         //--- own interface
 
-        public delegate int Branch_visitor(Point2F pt);
-        public readonly List<Ordered_slice> Slices = new List<Ordered_slice>();        
-
-        public bool Is_leaf { get { return _children.Count == 0; } }
+        public delegate int Branch_visitor(Point2F pt);        
+        public readonly List<Branch> Children = new List<Branch>();
+        public bool Is_leaf { get { return Children.Count == 0; } }
 
         public List<Branch> Df_traverse()  //
         {
             List<Branch> result = new List<Branch>();
             result.Add(this);
-            foreach (Branch b in _children)
+            foreach (Branch b in Children)
                 result.AddRange(b.Df_traverse());
             return result;
         }
@@ -62,20 +60,10 @@ namespace Matmill
         public double calc_deep_distance()
         {
             double dist = _curve.Length;
-            foreach (Branch b in _children)
+            foreach (Branch b in Children)
                 dist += b.Deep_distance;
             return dist;
-        }
-
-        public Ordered_slice Get_upstream_slice()
-        {
-            Branch b;
-
-            for (b = this; b != null && b.Slices.Count == 0; b = b.Parent);
-
-            if (b == null) return null;
-            return b.Slices[b.Slices.Count - 1];
-        }
+        }        
 
         public void Bisect(Branch_visitor visitor, ref double t, double stop_distance)
         {
