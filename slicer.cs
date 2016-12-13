@@ -3,8 +3,6 @@ using System.Collections.Generic;
 
 using CamBam.Geom;
 
-using Tree4;
-
 namespace Matmill
 {
     class Slicer
@@ -15,7 +13,6 @@ namespace Matmill
         private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
 
         private double _general_tolerance;
-        private T4 _ready_slices;
         private Slice _candidate = null;
         private Ballfield_topographer _topo;
 
@@ -74,35 +71,13 @@ namespace Matmill
             return path;
         }
 
-        private void insert_in_t4(Slice s)
-        {
-            Point2F min = Point2F.Undefined;
-            Point2F max = Point2F.Undefined;
-            s.Get_ball_extrema(ref min, ref max);
-            T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
-            _ready_slices.Add(rect, s);
-
-            _topo.Add(s.Ball, s);
-        }
-
         private List<Slice> find_colliding_slices(Slice s)
         {
             Point2F min = Point2F.Undefined;
             Point2F max = Point2F.Undefined;
             s.Get_extrema(ref min, ref max);
 
-            T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
-            return _ready_slices.Get_colliding_objects<Slice>(rect);
-        }
-
-        private List<Slice> find_intersecting_slices(Point2F a, Point2F b)
-        {
-            T4_rect rect = new T4_rect(Math.Min(a.X, b.X),
-                                       Math.Min(a.Y, b.Y),
-                                       Math.Max(a.X, b.X),
-                                       Math.Max(a.Y, b.Y));
-
-            return _ready_slices.Get_colliding_objects<Slice>(rect);
+            return _topo.Get_colliding_objects<Slice>(min, max);
         }
 
         private List<Point2F> trace_branch_switch(Slice dst, Slice src)
@@ -116,7 +91,7 @@ namespace Matmill
 
             foreach (Slice s in find_lca_path(dst, src))
             {
-                if (may_shortcut(current, end))
+                if (_topo.Is_line_inside_region(new Line2F(current, end), _general_tolerance))
                     break;
                 current = s.Center;
                 knots.Add(current);
@@ -136,7 +111,7 @@ namespace Matmill
             {
                 for (Slice s = Last_slice.Parent; s != Root_slice; s = s.Parent)
                 {
-                    if (may_shortcut(current, end))
+                    if (_topo.Is_line_inside_region(new Line2F(current, end), _general_tolerance))
                         break;
                     current = s.Center;
                     path.Add(current);
@@ -145,90 +120,6 @@ namespace Matmill
             path.Add(end);
 
             return path;
-        }
-
-        // check if it is possible to shortcut from a to b via while
-        // staying inside the slice balls
-        // we are collecting all the intersections and tracking the list of balls we're inside
-        // at any given point. If list becomes empty, we can't shortcut
-        private bool may_shortcut(Point2F a, Point2F b, List<Slice> colliders)
-        {
-            Line2F path = new Line2F(a, b);
-            SortedList<double, List<Slice>> intersections = new SortedList<double, List<Slice>>();
-            List<Slice> running_collides = new List<Slice>();
-
-            foreach (Slice s in colliders)
-            {
-                Line2F insects = s.Ball.LineIntersect(path, _general_tolerance);
-
-                if (insects.p1.IsUndefined && insects.p2.IsUndefined)
-                {
-                    // no intersections: check if whole path lay inside the circle
-                    if (   a.DistanceTo(s.Center) < s.Radius + _general_tolerance
-                        && b.DistanceTo(s.Center) < s.Radius + _general_tolerance)
-                        return true;
-                }
-                else if (insects.p1.IsUndefined || insects.p2.IsUndefined)
-                {
-                    // single intersection. one of the path ends must be inside the circle, otherwise it is a tangent case
-                    // and should be ignored
-                    if (a.DistanceTo(s.Center) < s.Radius + _general_tolerance)
-                    {
-                        running_collides.Add(s);
-                    }
-                    else if (b.DistanceTo(s.Center) < s.Radius + _general_tolerance)
-                    {
-                        ;
-                    }
-                    else
-                    {
-                        continue;
-                    }
-
-                    Point2F c = insects.p1.IsUndefined ? insects.p2 : insects.p1;
-                    double d = c.DistanceTo(a);
-                    if (!intersections.ContainsKey(d))
-                        intersections.Add(d, new List<Slice>());
-                    intersections[d].Add(s);
-                }
-                else
-                {
-                    // double intersection
-                    double d = insects.p1.DistanceTo(a);
-                    if (! intersections.ContainsKey(d))
-                        intersections.Add(d, new List<Slice>());
-                    intersections[d].Add(s);
-
-                    d = insects.p2.DistanceTo(a);
-                    if (! intersections.ContainsKey(d))
-                        intersections.Add(d, new List<Slice>());
-                    intersections[d].Add(s);
-                }
-            }
-
-            if (running_collides.Count == 0)
-                return false;
-
-            foreach (var ins in intersections)
-            {
-                foreach (Slice s in ins.Value)
-                {
-                    if (running_collides.Contains(s))
-                        running_collides.Remove(s);
-                    else
-                        running_collides.Add(s);
-                }
-
-                if (running_collides.Count == 0 && (ins.Key + _general_tolerance < a.DistanceTo(b)))
-                    return false;
-            }
-
-            return true;
-        }
-
-        private bool may_shortcut(Point2F a, Point2F b)
-        {
-            return may_shortcut(a, b, find_intersecting_slices(a, b));
         }
 
         private int evaluate_possible_slice(Slice parent, Point2F pt)
@@ -296,9 +187,9 @@ namespace Matmill
                 // generate guide move if this slice is not a simple continuation
                 if (parent_slice != Last_slice)
                     _candidate.Guide = trace_branch_switch(_candidate, Last_slice);
-
+                                
                 Sequence.Add(_candidate);
-                insert_in_t4(_candidate);
+                _topo.Add(_candidate.Ball, _candidate);                
             }
 
             // need to go deeper
@@ -318,23 +209,20 @@ namespace Matmill
             _tool_r = tool_r;
             _dir = dir;
 
-            _ready_slices = new T4(_ready_slices.Rect);
+            _topo = new Ballfield_topographer(_topo.Min, _topo.Max);            
             Sequence.Clear();
 
             Slice s = new Slice(root.Start, Get_radius(root.Start), _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+
             Sequence.Add(s);
-            insert_in_t4(s);
+            _topo.Add(s.Ball, s);
 
             trace_branch(root, s);
         }
 
         public Slicer(Point2F min, Point2F max, double general_tolerance)
-        {
-            _ready_slices = new T4(new T4_rect(min.X - 1, min.Y - 1, max.X + 1, max.Y + 1));
-
-            // XXX: will fail for the second run !
+        {                     
             _topo = new Ballfield_topographer(min, max);
-
             _general_tolerance = general_tolerance;
         }
     }

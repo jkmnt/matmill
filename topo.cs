@@ -154,7 +154,34 @@ namespace Matmill
     class Ballfield_topographer
     {
         private readonly T4 _t4;
-        private List<Circle2F> _ballfield;
+
+        private const double T4_MARGIN = 1.0;
+
+        public Point2F Min
+        {
+            get { return new Point2F(_t4.Rect.Xmin + T4_MARGIN, _t4.Rect.Ymin + T4_MARGIN); }
+        }
+
+        public Point2F Max
+        {
+            get { return new Point2F(_t4.Rect.Xmax - T4_MARGIN, _t4.Rect.Ymax - T4_MARGIN); }
+        }
+
+        private List<Circle2F> find_intersecting_balls(Line2F line)
+        {
+            T4_rect rect = new T4_rect(Math.Min(line.p1.X, line.p2.X),
+                                       Math.Min(line.p1.Y, line.p2.Y),
+                                       Math.Max(line.p1.X, line.p2.X),
+                                       Math.Max(line.p1.Y, line.p2.Y));
+
+            List<Circle2F> balls = new List<Circle2F>();
+
+            // since objects in t4 are generic, convert convert rects backs to balls
+            foreach (T4_rect ballrect in _t4.Get_colliding_obj_rects(rect))
+                balls.Add(new Circle2F(new Point2F(ballrect.Xc, ballrect.Yc), ballrect.W / 2));
+
+            return balls;
+        }
 
         // we are collecting all the intersections and tracking the list of balls we're inside
         // at any given point. If list becomes empty, we can't shortcut
@@ -166,7 +193,7 @@ namespace Matmill
             SortedList<double, List<Circle2F>> intersections = new SortedList<double, List<Circle2F>>();
             List<Circle2F> running_balls = new List<Circle2F>();
 
-            foreach (Circle2F ball in _ballfield)
+            foreach (Circle2F ball in find_intersecting_balls(line))
             {
                 Line2F insects = ball.LineIntersect(line, tolerance);
 
@@ -235,19 +262,29 @@ namespace Matmill
             return true;
         }
 
+        public List<T> Get_colliding_objects<T>(Point2F min, Point2F max)
+        {
+            T4_rect rect = new T4_rect(min.X, min.Y, max.X, max.Y);
+            return _t4.Get_colliding_objects<T>(rect);
+        }
+
+        public void Add(Point2F center, double radius, object obj)
+        {
+            T4_rect rect = new T4_rect(center.X - radius,
+                                       center.Y - radius,
+                                       center.X + radius,
+                                       center.Y + radius);
+            _t4.Add(rect, obj);
+        }
+
         public void Add(Circle2F ball, object obj)
         {
-            T4_rect rect = new T4_rect(ball.Center.X - ball.Radius,
-                                       ball.Center.Y - ball.Radius,
-                                       ball.Center.X + ball.Radius,
-                                       ball.Center.Y + ball.Radius);
-            _t4.Add(rect, obj);
+            this.Add(ball.Center, ball.Radius, obj);         
         }
 
         public Ballfield_topographer(Point2F min, Point2F max)
         {
             _t4 = new T4(new T4_rect(min.X - 1, min.Y - 1, max.X + 1, max.Y + 1));
-            //_ballfield = ballfield;
         }
     }
 }
