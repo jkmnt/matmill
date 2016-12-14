@@ -13,7 +13,6 @@ namespace Matmill
         private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
 
         private double _general_tolerance;
-        private Slice _candidate = null;
         private Ballfield_topographer _topo;
 
         private double _min_ted;
@@ -122,7 +121,7 @@ namespace Matmill
             return path;
         }
 
-        private int evaluate_possible_slice(Slice parent, Point2F pt)
+        private int evaluate_possible_slice(Slice parent, Point2F pt, ref Slice _candidate)
         {
             double radius = Get_radius(pt);
 
@@ -154,16 +153,17 @@ namespace Matmill
 
             while (true)
             {
-                _candidate = null;
-                branch.Bisect(pt => evaluate_possible_slice(parent_slice, pt), ref t, _general_tolerance);
+                Slice new_slice = null;
+                
+                branch.Bisect(pt => evaluate_possible_slice(parent_slice, pt, ref new_slice), ref t, _general_tolerance);
 
-                if (_candidate == null)
+                if (new_slice == null)
                     break;
-                if (_candidate.Max_ted < _min_ted)   // discard slice if outside the specified min TED
+                if (new_slice.Max_ted < _min_ted)   // discard slice if outside the specified min TED
                     break;
 
                 // discard slice if outside the final allowed percentage
-                double err = (_candidate.Max_ted - _max_ted) / _max_ted;
+                double err = (new_slice.Max_ted - _max_ted) / _max_ted;
                 if (err > FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE)
                 {
                     Logger.warn("failed to create slice within stepover limit. stopping slicing the branch");
@@ -176,20 +176,21 @@ namespace Matmill
                 if (Last_slice == Root_slice)
                 {
                     Logger.log("changing startpoint of root slice");
-                    Root_slice.Change_startpoint(_candidate.Start);
-                    _candidate.Append_leadin_and_leadout(0, Slice_leadout_angle);
+                    Root_slice.Change_startpoint(new_slice.Start);
+                    new_slice.Append_leadin_and_leadout(0, Slice_leadout_angle);
                 }
                 else
                 {
-                    _candidate.Append_leadin_and_leadout(Slice_leadin_angle, Slice_leadout_angle);
+                    new_slice.Append_leadin_and_leadout(Slice_leadin_angle, Slice_leadout_angle);
                 }
 
                 // generate guide move if this slice is not a simple continuation
                 if (parent_slice != Last_slice)
-                    _candidate.Guide = trace_branch_switch(_candidate, Last_slice);
-                                
-                Sequence.Add(_candidate);
-                _topo.Add(_candidate.Ball, _candidate);                
+                    new_slice.Guide = trace_branch_switch(new_slice, Last_slice);
+
+                Sequence.Add(new_slice);
+                _topo.Add(new_slice.Ball, new_slice);
+                parent_slice = new_slice;
             }
 
             // need to go deeper
@@ -209,19 +210,19 @@ namespace Matmill
             _tool_r = tool_r;
             _dir = dir;
 
-            _topo = new Ballfield_topographer(_topo.Min, _topo.Max);            
+            _topo = new Ballfield_topographer(_topo.Min, _topo.Max);
             Sequence.Clear();
 
-            Slice s = new Slice(root.Start, Get_radius(root.Start), _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+            Slice root_slice = new Slice(root.Start, Get_radius(root.Start), _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
 
-            Sequence.Add(s);
-            _topo.Add(s.Ball, s);
+            Sequence.Add(root_slice);
+            _topo.Add(root_slice.Ball, root_slice);
 
-            trace_branch(root, s);
+            trace_branch(root, root_slice);
         }
 
         public Slicer(Point2F min, Point2F max, double general_tolerance)
-        {                     
+        {
             _topo = new Ballfield_topographer(min, max);
             _general_tolerance = general_tolerance;
         }
