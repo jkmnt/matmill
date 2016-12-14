@@ -6,7 +6,7 @@ using CamBam.Geom;
 namespace Matmill
 {
     class Slicer
-    {
+    {        
         public delegate double Get_radius_delegate(Point2F pt);
 
         private const double TED_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
@@ -120,7 +120,7 @@ namespace Matmill
             path.Add(end);
 
             return path;
-        }
+        }        
 
         private int evaluate_possible_slice(Slice parent, Point2F pt, ref Slice _candidate)
         {
@@ -155,7 +155,7 @@ namespace Matmill
             while (true)
             {
                 Slice new_slice = null;
-                
+
                 branch.Bisect(pt => evaluate_possible_slice(parent_slice, pt, ref new_slice), ref t, _general_tolerance);
 
                 if (new_slice == null)

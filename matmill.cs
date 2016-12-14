@@ -8,7 +8,7 @@ using CamBam.Geom;
 namespace Matmill
 {
     class Pocket_generator
-    {                
+    {
         private readonly Topographer _topo;
 
         private double _general_tolerance = 0.001;
@@ -152,8 +152,8 @@ namespace Matmill
 
                 throw new Exception("unknown slice placement");
             }
-                        
-            _candidate = s;            
+
+            _candidate = s;
 
             if (s.Max_ted > _max_ted)
                 return -1;                                            // overshoot, go left
@@ -163,21 +163,79 @@ namespace Matmill
             return 0;                                                                       // good slice inside the tolerance, stop search
         }
 
-        double calc_slice_step()
+        private double calc_optimal_step()
         {
-            // funny way to calc it                      
+            // funny way to calc it
 
-            Branch branch = new Branch(null);            
+            Branch branch = new Branch(null);
             branch.Add_point(new Point2F(0, 0));
-            branch.Add_point(new Point2F(0, _max_ted * 2));
+            branch.Add_point(new Point2F(0, _tool_r * 2));
 
             Slice slice_a = new Slice(new Point2F(0, 0), _slice_radius, RotationDirection.CCW);
             Slice slice_b = null;
 
-            double t = 0.0;       
+            double t = 0.0;
             branch.Bisect(pt => evaluate_possible_slice(slice_a, pt, ref slice_b), ref t, _general_tolerance);
 
             return slice_a.Center.DistanceTo(slice_b.Center);
+        }
+
+        private List<Slice> place_slices(List<Point2F> centers)
+        {
+            List<Slice> sequence = new List<Slice>();
+            Slice root_slice = new Slice(centers[0], _slice_radius, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+
+            sequence.Add(root_slice);
+
+            Slice prev_slice = root_slice;
+            // create slices
+            for (int i = 1; i < centers.Count; i++)
+            {
+                Point2F center = centers[i];
+                Slice s = new Slice(prev_slice, center, _slice_radius, _dir, _tool_r, prev_slice.End);
+
+                if (s.Placement != Slice_placement.NORMAL)
+                    throw new Exception("failed to place slice");
+
+                if (i == 1)
+                {
+                    Logger.log("changing startpoint of root slice");
+                    root_slice.Change_startpoint(s.Start);
+                    s.Append_leadin_and_leadout(0, _slice_leadout_angle);
+                }
+                else
+                {
+                    s.Append_leadin_and_leadout(_slice_leadin_angle, _slice_leadout_angle);
+                }
+
+                sequence.Add(s);
+                prev_slice = s;
+            }
+
+            return sequence;
+        }
+
+        private Sliced_path generate_path(List<Slice> sequence)
+        {
+            Sliced_path_generator gen;            
+
+            if (!_should_smooth_chords)
+                gen = new Sliced_path_generator(_general_tolerance);
+            else
+                gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
+
+            gen.Append_spiral(sequence[0].Center, sequence[0].End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+            gen.Append_root_slice(sequence[0]);
+
+            for (int i = 1; i < sequence.Count; i++)
+            {
+                Slice s = sequence[i];
+                gen.Append_slice(s, s.Guide);
+            }
+
+            //gen.Append_return_to_base(slicer.Gen_return_path());
+
+            return gen.Path;
         }
 
         public Sliced_path run()
@@ -185,48 +243,12 @@ namespace Matmill
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
 
-            double step = calc_slice_step();
+            double step = calc_optimal_step();
 
             List<Point2F> slice_centers = _topo.Get_samples_exact(step);
+            List<Slice> sequence = place_slices(slice_centers);
 
-            List<Slice> sequence = new List<Slice>();
-            Slice root_slice = new Slice(slice_centers[0], _slice_radius, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-
-            sequence.Add(root_slice);
-
-            Slice prev_slice = root_slice;
-            // create slices
-            for (int i = 1; i < slice_centers.Count; i++)
-            {
-                Point2F center = slice_centers[i];
-                Slice s = new Slice(prev_slice, center, _slice_radius, _dir, _tool_r, prev_slice.End);
-
-                if (s.Placement != Slice_placement.NORMAL)
-                    throw new Exception("failed to place slice");
-
-                sequence.Add(s);
-                prev_slice = s;
-            }
-
-            Sliced_path_generator gen;
-
-            if (!_should_smooth_chords)
-                gen = new Sliced_path_generator(_general_tolerance);
-            else
-                gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
-
-            gen.Append_spiral(root_slice.Center, root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_root_slice(root_slice);
-
-            for (int i = 1; i < sequence.Count; i++)
-            {
-                Slice s = sequence[i];
-                gen.Append_slice(s, null);
-            }
-
-            //gen.Append_return_to_base(slicer.Gen_return_path());
-
-            return gen.Path;
+            return generate_path(sequence);                        
         }
 
         public Engrave_generator(Polyline poly)
