@@ -8,7 +8,7 @@ using Geom;
 
 namespace Matmill
 {
-    enum Pocket_path_item_type
+    enum Sliced_path_item_type
     {
         SLICE,
         SPIRAL,
@@ -20,23 +20,23 @@ namespace Matmill
         DEBUG_MEDIAL_AXIS,
     }
 
-    class Pocket_path : List<Pocket_path_item> { }
+    class Sliced_path : List<Sliced_path_item> { }
 
-    class Pocket_path_item: Polyline
+    class Sliced_path_item: Polyline
     {
-        public readonly Pocket_path_item_type Item_type;
+        public readonly Sliced_path_item_type Item_type;
 
-        public Pocket_path_item(Pocket_path_item_type type) : base()
+        public Sliced_path_item(Sliced_path_item_type type) : base()
         {
             Item_type = type;
         }
 
-        public Pocket_path_item(Pocket_path_item_type type, int i) : base(i)
+        public Sliced_path_item(Sliced_path_item_type type, int i) : base(i)
         {
             Item_type = type;
         }
 
-        public Pocket_path_item(Pocket_path_item_type type, Polyline p) : base(p)
+        public Sliced_path_item(Sliced_path_item_type type, Polyline p) : base(p)
         {
             Item_type = type;
         }
@@ -66,11 +66,11 @@ namespace Matmill
         }
     }
 
-    class Pocket_path_generator
+    class Sliced_path_generator
     {
         protected double _general_tolerance;
 
-        public Pocket_path Path = new Pocket_path();
+        public Sliced_path Path = new Sliced_path();
         protected Slice _last_slice = null;
 
         protected void append_slice(Slice slice)
@@ -81,13 +81,13 @@ namespace Matmill
                 // connect segments
                 if (segidx > 0)
                 {
-                    Pocket_path_item shortcut = new Pocket_path_item(Pocket_path_item_type.SLICE_SHORTCUT);
+                    Sliced_path_item shortcut = new Sliced_path_item(Sliced_path_item_type.SLICE_SHORTCUT);
                     shortcut.Add(slice.Segments[segidx - 1].P2);
                     shortcut.Add(slice.Segments[segidx].P1);
                     Path.Add(shortcut);
                 }
 
-                Pocket_path_item arc = new Pocket_path_item(Pocket_path_item_type.SLICE);
+                Sliced_path_item arc = new Sliced_path_item(Sliced_path_item_type.SLICE);
                 arc.Add(slice.Segments[segidx], _general_tolerance);
                 Path.Add(arc);
             }
@@ -95,9 +95,9 @@ namespace Matmill
             _last_slice = slice;
         }
 
-        protected Pocket_path_item connect_slices(Slice dst, Slice src)
+        protected Sliced_path_item connect_slices(Slice dst, Slice src)
         {
-            Pocket_path_item path = new Pocket_path_item(Pocket_path_item_type.CHORD);
+            Sliced_path_item path = new Sliced_path_item(Sliced_path_item_type.CHORD);
             path.Add(src.End);
             path.Add(dst.Start);
             return path;
@@ -105,7 +105,7 @@ namespace Matmill
 
         public void Append_spiral(Point2F start, Point2F end, double spacing, RotationDirection dir)
         {
-            Pocket_path_item spiral = new Pocket_path_item(Pocket_path_item_type.SPIRAL);
+            Sliced_path_item spiral = new Sliced_path_item(Sliced_path_item_type.SPIRAL);
             foreach (Biarc2d biarc in Spiral_generator.Gen_archimedean_spiral(start, end, spacing, dir))
                 spiral.Add(biarc, _general_tolerance);
             Path.Add(spiral);
@@ -127,7 +127,7 @@ namespace Matmill
             }
             else
             {
-                Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.GUIDE);
+                Sliced_path_item p = new Sliced_path_item(Sliced_path_item_type.GUIDE);
 
                 p.Add(_last_slice.End);
                 foreach (Point2F pt in guide)
@@ -142,7 +142,7 @@ namespace Matmill
 
         public void Append_return_to_base(List<Point2F> exit)
         {
-            Pocket_path_item p = new Pocket_path_item(Pocket_path_item_type.RETURN_TO_BASE);
+            Sliced_path_item p = new Sliced_path_item(Sliced_path_item_type.RETURN_TO_BASE);
 
             p.Add(_last_slice.End);
             foreach (Point2F pt in exit)
@@ -151,13 +151,13 @@ namespace Matmill
             Path.Add(p);
         }
 
-        public Pocket_path_generator(double general_tolerance)
+        public Sliced_path_generator(double general_tolerance)
         {
             _general_tolerance = general_tolerance;
         }
     }
 
-    class Pocket_path_smooth_generator : Pocket_path_generator
+    class Sliced_path_smooth_generator : Sliced_path_generator
     {
         double _min_arc_len;
 
@@ -199,7 +199,7 @@ namespace Matmill
             return true;
         }
 
-        private Pocket_path_item connect_slices_with_biarc(Slice dst, Slice src)
+        private Sliced_path_item connect_slices_with_biarc(Slice dst, Slice src)
         {
             Point2F start = src.End;
             Point2F end = dst.Start;
@@ -224,14 +224,14 @@ namespace Matmill
             if (!is_biarc_inside_ball(biarc, src.Ball))
                 return null;
 
-            Pocket_path_item path = new Pocket_path_item(Pocket_path_item_type.SMOOTH_CHORD);
+            Sliced_path_item path = new Sliced_path_item(Sliced_path_item_type.SMOOTH_CHORD);
             path.Add(biarc, _general_tolerance);
             return path;
         }
 
-        private Pocket_path_item smooth_connect_slices(Slice dst, Slice src)
+        private Sliced_path_item smooth_connect_slices(Slice dst, Slice src)
         {
-            Pocket_path_item path = null;
+            Sliced_path_item path = null;
 
             // do not emit biarcs if distance is too small
             if (src.End.DistanceTo(dst.Start) > _min_arc_len)
@@ -247,7 +247,7 @@ namespace Matmill
         {
             if (guide == null)
             {
-                Pocket_path_item biarc = smooth_connect_slices(slice, _last_slice);
+                Sliced_path_item biarc = smooth_connect_slices(slice, _last_slice);
                 if (biarc != null)
                 {
                     Path.Add(biarc);
@@ -259,7 +259,7 @@ namespace Matmill
             base.Append_slice(slice, guide);            
         }
 
-        public Pocket_path_smooth_generator(double general_tolerance, double min_arc_len) : base(general_tolerance)
+        public Sliced_path_smooth_generator(double general_tolerance, double min_arc_len) : base(general_tolerance)
         {
             _min_arc_len = min_arc_len;
         }

@@ -5,7 +5,6 @@ using CamBam.Geom;
 
 namespace Matmill
 {
-
     class Pocket_generator
     {
         private const double TED_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
@@ -46,14 +45,14 @@ namespace Matmill
             return _topo.Get_dist_to_wall(pt) - _tool_r - _margin;
         }
 
-        private Pocket_path generate_path(Slicer slicer)
+        private Sliced_path generate_path(Slicer slicer)
         {
-            Pocket_path_generator gen;
+            Sliced_path_generator gen;
 
             if (!_should_smooth_chords)
-                gen = new Pocket_path_generator(_general_tolerance);
+                gen = new Sliced_path_generator(_general_tolerance);
             else
-                gen = new Pocket_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
+                gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
             
             gen.Append_spiral(slicer.Root_slice.Center, slicer.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
             gen.Append_root_slice(slicer.Root_slice);            
@@ -76,7 +75,7 @@ namespace Matmill
             return radius;
         }
 
-        public Pocket_path run()
+        public Sliced_path run()
         {
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");

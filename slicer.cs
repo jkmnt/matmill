@@ -30,6 +30,7 @@ namespace Matmill
         // NOTE: radius getter may return 0 if radius is too small or invalid
         public Get_radius_delegate Get_radius = x => 0;
 
+        // XXX: refactor me
         private static List<Slice> find_lca_path(Slice dst, Slice src)
         {
             List<Slice> path = new List<Slice>();

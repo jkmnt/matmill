@@ -20,12 +20,12 @@ namespace Trochopock
     // toolpath combines flat trajectory and depth
     class Toolpath
     {
-        public readonly Pocket_path Trajectory;
+        public readonly Sliced_path Trajectory;
         public readonly double Top;
         public readonly double Bottom;
         public readonly bool Should_return_to_base;
         public Polyline Leadin;
-        public Toolpath(Pocket_path path, double bottom, double top, bool return_to_base)
+        public Toolpath(Sliced_path path, double bottom, double top, bool return_to_base)
         {
             this.Trajectory = path;
             this.Bottom = bottom;
@@ -35,10 +35,10 @@ namespace Trochopock
     }
 
     [Serializable]
-    public class Mop_matmill : MOPFromGeometry, IIcon
+    public class Sliced_mop : MOPFromGeometry
     {
         [NonSerialized]
-        private List<Pocket_path> _trajectories = new List<Pocket_path>();
+        private List<Sliced_path> _trajectories = new List<Sliced_path>();
         [NonSerialized]
         private List<Toolpath> _toolpaths = new List<Toolpath>();
 
@@ -57,7 +57,7 @@ namespace Trochopock
         protected CBValue<double> _stepover;
         protected CBValue<double> _target_depth;
         protected CBValue<LeadMoveInfo> _leadin;
-        protected CBValue<Matrix4x4F> _transform;
+        protected CBValue<Matrix4x4F> _transform = default(CBValue<Matrix4x4F>);
         protected double _chord_feedrate = 0;
         protected double _spiral_feedrate = 0;
 
@@ -65,38 +65,6 @@ namespace Trochopock
         protected bool _may_return_to_base = true;
         protected bool _should_smooth_chords = false;
         protected bool _should_draw_chords = false;
-
-        //--- invisible and non-serializable properties
-
-        [XmlIgnore, Browsable(false)]
-        public override string MOPTypeName
-        {
-            get { return "TrochoPock"; }
-        }
-
-        [XmlIgnore, Browsable(false)]
-        public Image ActiveIconImage
-        {
-            get { return resources.cam_trochopock1;}
-        }
-
-        [XmlIgnore, Browsable(false)]
-        public string ActiveIconKey
-        {
-            get { return "cam_trochopock1"; }
-        }
-
-        [XmlIgnore, Browsable(false)]
-        public Image InactiveIconImage
-        {
-            get { return resources.cam_trochopock0;}
-        }
-
-        [XmlIgnore, Browsable(false)]
-        public string InactiveIconKey
-        {
-            get { return "cam_trochopock0"; }
-        }
 
         //--- hidden base parameters
 
@@ -279,19 +247,19 @@ namespace Trochopock
             return base.GetZLayers(base.StockSurface.Cached, _target_depth.Cached, _depth_increment.Cached, _final_depth_increment.Cached);
         }
 
-        private bool is_inch_units()
+        protected bool is_inch_units()
         {
             return base._CADFile != null && base._CADFile.DrawingUnits == Units.Inches;
         }
 
-        private List<Toolpath> gen_ordered_toolpath(List<Pocket_path> trajectories, double[] bottoms)
+        private List<Toolpath> gen_ordered_toolpath(List<Sliced_path> trajectories, double[] bottoms)
         {
             List<Toolpath> toolpaths = new List<Toolpath>();
 
             // cut ordering == level first is meaningful only for a several pockets
             if (trajectories.Count < 2 || _cut_ordering.Cached == CutOrderingOption.DepthFirst)
             {
-                foreach (Pocket_path traj in trajectories)
+                foreach (Sliced_path traj in trajectories)
                 {
                     double surface = base.StockSurface.Cached;
 
@@ -312,7 +280,7 @@ namespace Trochopock
 
                 foreach (double bot in bottoms)
                 {
-                    foreach (Pocket_path traj in trajectories)
+                    foreach (Sliced_path traj in trajectories)
                         toolpaths.Add(new Toolpath(traj, bot, surface, false));
                     surface = bot;
                 }
@@ -330,10 +298,10 @@ namespace Trochopock
 
         private Polyline gen_leadin(Toolpath path, Toolpath prev_path)
         {
-            Pocket_path_item spiral = path.Trajectory[0];
+            Sliced_path_item spiral = path.Trajectory[0];
 
-            if (spiral.Item_type != Pocket_path_item_type.SPIRAL)
-                throw new Exception("no spiral in pocket path");
+            if (spiral.Item_type != Sliced_path_item_type.SPIRAL)
+                throw new Exception("no spiral in sliced path");
 
             LeadMoveInfo move = _leadin.Cached;
             Polyline p = move.GetLeadInToolPath(spiral,
@@ -352,70 +320,22 @@ namespace Trochopock
             return p;
         }
 
-        private Pocket_path gen_pocket(ShapeListItem shape)
-        {
-            Polyline outline;
-            Polyline[] islands;
-
-            if (shape.Shape is Polyline)
-            {
-                outline = (Polyline)shape.Shape;
-                islands = new Polyline[] { };
-            }
-            else if (shape.Shape is CamBam.CAD.Region)
-            {
-                CamBam.CAD.Region reg = (CamBam.CAD.Region)shape.Shape;
-                outline = reg.OuterCurve;
-                islands = reg.HoleCurves;
-            }
-            else
-            {
-                return null;
-            }
-
-            Pocket_generator gen = new Pocket_generator(outline, islands);
-
-            gen.General_tolerance = is_inch_units() ? 0.001 / 25.4 : 0.001;
-            gen.Tool_d = base.ToolDiameter.Cached;
-            gen.Max_ted = base.ToolDiameter.Cached * _stepover.Cached;
-            gen.Min_ted = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
-
-            gen.Startpoint = (Point2F)base.StartPoint.Cached;
-            gen.Margin = base.RoughingClearance.Cached;
-
-            if (_milling_direction.Cached == MillingDirectionOptions.Mixed || base.SpindleDirection.Cached == SpindleDirectionOptions.Off)
-            {
-                gen.Mill_direction = RotationDirection.Unknown; // means 'mixed' here
-                gen.Should_smooth_chords = false;
-            }
-            else
-            {
-                int dir = (int)(base.SpindleDirection.Cached);
-                if (_milling_direction.Cached == MillingDirectionOptions.Climb)
-                    dir = -dir;
-                gen.Mill_direction = (RotationDirection)dir;
-                gen.Should_smooth_chords = _should_smooth_chords;
-            }
-
-            return gen.run();
-        }
-
         private void redraw_parameters()
         {
             CamBamUI.MainUI.ObjectProperties.Refresh();
         }
 
-        private List<Surface> calc_visual_cut_widths(List<Pocket_path> trajectories, double bottom)
+        private List<Surface> calc_visual_cut_widths(List<Sliced_path> trajectories, double bottom)
         {
             List<Surface> surfaces = new List<Surface>();
 
-            foreach (Pocket_path traj in trajectories)
+            foreach (Sliced_path traj in trajectories)
             {
-                foreach(Pocket_path_item item in traj)
+                foreach(Sliced_path_item item in traj)
                 {
                     Polyline p = item;
 
-                    if (item.Item_type != Pocket_path_item_type.SLICE && item.Item_type != Pocket_path_item_type.SPIRAL)
+                    if (item.Item_type != Sliced_path_item_type.SLICE && item.Item_type != Sliced_path_item_type.SPIRAL)
                         continue;
 
                     // TODO: maybe a single transform of surface will suffice ?
@@ -491,28 +411,28 @@ namespace Trochopock
                 if (path.Leadin != null)
                     leadins_len += path.Leadin.GetPerimeter();
 
-                foreach (Pocket_path_item item in path.Trajectory)
+                foreach (Sliced_path_item item in path.Trajectory)
                 {
                     double len = item.GetPerimeter();
 
                     switch (item.Item_type)
                     {
-                    case Pocket_path_item_type.SPIRAL:
+                    case Sliced_path_item_type.SPIRAL:
                         spirals_len += len;
                         break;
 
-                    case Pocket_path_item_type.SLICE:
+                    case Sliced_path_item_type.SLICE:
                         slices_len += len;
                         break;
 
-                    case Pocket_path_item_type.CHORD:
-                    case Pocket_path_item_type.SMOOTH_CHORD:
-                    case Pocket_path_item_type.GUIDE:
-                    case Pocket_path_item_type.SLICE_SHORTCUT:
+                    case Sliced_path_item_type.CHORD:
+                    case Sliced_path_item_type.SMOOTH_CHORD:
+                    case Sliced_path_item_type.GUIDE:
+                    case Sliced_path_item_type.SLICE_SHORTCUT:
                         moves_len += len;
                         break;
 
-                    case Pocket_path_item_type.RETURN_TO_BASE:
+                    case Sliced_path_item_type.RETURN_TO_BASE:
                         if (! path.Should_return_to_base)
                             continue;
                         moves_len += len;
@@ -564,91 +484,29 @@ namespace Trochopock
                                                   cut_dur + rapids_dur);
         }
 
-        protected override void _GenerateToolpathsWorker()
+        internal void reset_toolpaths()
         {
-            try
-            {
-                _trajectories.Clear();
-                _toolpaths.Clear();
-                _visual_cut_widths.Clear();
-                _visual_rapids.Clear();
-                GC.Collect();
+            _trajectories.Clear();
+            _toolpaths.Clear();
+            _visual_cut_widths.Clear();
+            _visual_rapids.Clear();
+            GC.Collect();
+        }
 
-                if (base.ToolDiameter.Cached == 0)
-                {
-                    Host.err("tool diameter is zero");
-                    base.MachineOpStatus = MachineOpStatus.Errors;
-                    return;
-                }
-
-                if (_stepover.Cached == 0 || _stepover.Cached > 1)
-                {
-                    Host.err("stepover should be > 0 and <= 1");
-                    base.MachineOpStatus = MachineOpStatus.Errors;
-                    return;
-                }
-
-                // XXX: is it needed ?
-                base.UpdateGeometryExtrema(base._CADFile);
-                base._CADFile.MachiningOptions.UpdateGeometryExtrema(base._CADFile);
-                ShapeList shapes = new ShapeList();
-                shapes.ApplyTransformations = true;
-                shapes.AddEntities(base._CADFile, base.PrimitiveIds);
-                shapes = shapes.DetectRegions();
-
-                bool found_opened_polylines = false;
-                for (int i = shapes.Count - 1; i >= 0; i--)
-                {
-                    if (shapes[i].Shape is Polyline && ! ((Polyline)shapes[i].Shape).Closed)
-                    {
-                        found_opened_polylines = true;
-                        shapes.RemoveAt(i);
-                    }
-                }
-                if (found_opened_polylines)
-                {
-                    Host.warn("ignoring open polylines");
-                    base.MachineOpStatus = MachineOpStatus.Warnings;
-                }
-
-                foreach (ShapeListItem shape in shapes)
-                {
-                    Pocket_path traj = gen_pocket(shape);
-                    if (traj != null)
-                        _trajectories.Add(traj);
-                }
-
-                if (_trajectories.Count == 0)
-                    return;
-
-                double[] bottoms = get_z_layers();
-                _toolpaths = gen_ordered_toolpath(_trajectories, bottoms);
-                _visual_cut_widths = calc_visual_cut_widths(_trajectories, bottoms[bottoms.Length - 1]);  // for the last depth only
-                _visual_rapids = calc_visual_rapids(_toolpaths);
-
-                print_toolpath_stats(_toolpaths, _visual_rapids);
-
-                if (base.MachineOpStatus == MachineOpStatus.Unknown)
-                {
-                    base.MachineOpStatus = MachineOpStatus.OK;
-                }
-            }
-            catch (Exception ex)
-            {
-                base.MachineOpStatus = MachineOpStatus.Errors;
-                ThisApplication.HandleException(ex);
-            }
-            finally
-            {
-                base._GenerateToolpathsFinal();
-            }
+        internal void insert_toolpaths(List<Sliced_path> trajectories)
+        {
+            _trajectories = trajectories;
+            double[] bottoms = get_z_layers();
+            _toolpaths = gen_ordered_toolpath(_trajectories, bottoms);
+            _visual_cut_widths = calc_visual_cut_widths(_trajectories, bottoms[bottoms.Length - 1]);  // for the last depth only
+            _visual_rapids = calc_visual_rapids(_toolpaths);
         }
 
         private void emit_toolpath(MachineOpToGCode gcg, Toolpath path)
         {
             // first item is the spiral by convention
-            if (path.Trajectory[0].Item_type != Pocket_path_item_type.SPIRAL)
-                throw new Exception("no spiral in pocket path");
+            if (path.Trajectory[0].Item_type != Sliced_path_item_type.SPIRAL)
+                throw new Exception("no spiral in sliced path");
 
             CBValue<double> normal_feedrate = base.CutFeedrate;
             CBValue<double> chord_feedrate = _chord_feedrate != 0 ? new CBValue<double>(_chord_feedrate) : base.CutFeedrate;
@@ -663,33 +521,33 @@ namespace Trochopock
                 gcg.AppendPolyLine(p, double.NaN);
             }
 
-            foreach (Pocket_path_item item in path.Trajectory)
+            foreach (Sliced_path_item item in path.Trajectory)
             {
                 switch (item.Item_type)
                 {
-                case Pocket_path_item_type.SPIRAL:
+                case Sliced_path_item_type.SPIRAL:
                     base.CutFeedrate = spiral_feedrate;
                     break;
 
-                case Pocket_path_item_type.SLICE:
+                case Sliced_path_item_type.SLICE:
                     base.CutFeedrate = normal_feedrate;
                     break;
 
-                case Pocket_path_item_type.CHORD:
-                case Pocket_path_item_type.SMOOTH_CHORD:
-                case Pocket_path_item_type.SLICE_SHORTCUT:
-                case Pocket_path_item_type.GUIDE:
+                case Sliced_path_item_type.CHORD:
+                case Sliced_path_item_type.SMOOTH_CHORD:
+                case Sliced_path_item_type.SLICE_SHORTCUT:
+                case Sliced_path_item_type.GUIDE:
                     base.CutFeedrate = chord_feedrate;
                     break;
 
-                case Pocket_path_item_type.RETURN_TO_BASE:
+                case Sliced_path_item_type.RETURN_TO_BASE:
                     if (! path.Should_return_to_base)
                         continue;
                     base.CutFeedrate = chord_feedrate;
                     break;
 
                 default:
-                    throw new Exception("unknown item type in pocket trajectory");
+                    throw new Exception("unknown item type in sliced trajectory");
                 }
 
                 Polyline p = (Polyline)item.Clone();
@@ -707,9 +565,9 @@ namespace Trochopock
 
             foreach (Toolpath path in _toolpaths)
             {
-                foreach (Pocket_path_item p in path.Trajectory)
+                foreach (Sliced_path_item p in path.Trajectory)
                 {
-                    if (p.Item_type != Pocket_path_item_type.SLICE && p.Item_type != Pocket_path_item_type.SPIRAL)
+                    if (p.Item_type != Sliced_path_item_type.SLICE && p.Item_type != Sliced_path_item_type.SPIRAL)
                         continue;
 
                     Matrix4x4F mx = new Matrix4x4F();
@@ -733,13 +591,13 @@ namespace Trochopock
             if (tp0.Leadin != null)
                 return tp0.Leadin.FirstPoint;
             if (tp0.Trajectory.Count == 0) return Point3F.Undefined;
-            Pocket_path_item ppi = tp0.Trajectory[0];
+            Sliced_path_item ppi = tp0.Trajectory[0];
             if (ppi.Points.Count == 0) return Point3F.Undefined;
             Point3F pt = ppi.Points[0].Point;
             return new Point3F(pt.X, pt.Y, tp0.Bottom);
         }
 
-        private void paint_pocket(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, Toolpath path)
+        private void paint_toolpath(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, Toolpath path)
         {
             Polyline leadin = path.Leadin;
 
@@ -758,15 +616,15 @@ namespace Trochopock
                 base.PaintDirectionVector(iv, leadin, d3d, mx);
             }
 
-            foreach (Pocket_path_item p in path.Trajectory)
+            foreach (Sliced_path_item p in path.Trajectory)
             {
                 Color acol = arccolor;
                 Color lcol = linecolor;
 
-                if (p.Item_type == Pocket_path_item_type.RETURN_TO_BASE && (! path.Should_return_to_base))
+                if (p.Item_type == Sliced_path_item_type.RETURN_TO_BASE && (! path.Should_return_to_base))
                     continue;
 
-                if (p.Item_type == Pocket_path_item_type.CHORD || p.Item_type == Pocket_path_item_type.SMOOTH_CHORD || p.Item_type == Pocket_path_item_type.SLICE_SHORTCUT)
+                if (p.Item_type == Sliced_path_item_type.CHORD || p.Item_type == Sliced_path_item_type.SMOOTH_CHORD || p.Item_type == Sliced_path_item_type.SLICE_SHORTCUT)
                 {
                     if (! _should_draw_chords)
                         continue;
@@ -774,7 +632,7 @@ namespace Trochopock
                     lcol = chord_color;
                 }
 
-                if (p.Item_type == Pocket_path_item_type.DEBUG_MEDIAL_AXIS)
+                if (p.Item_type == Sliced_path_item_type.DEBUG_MEDIAL_AXIS)
                 {
                     acol = Color.Cyan;
                     lcol = Color.Cyan;
@@ -850,7 +708,7 @@ namespace Trochopock
             if (_trajectories.Count == 0) return;
 
             foreach (Toolpath item in _toolpaths)
-                paint_pocket(iv, d3d, arccolor, linecolor, item);
+                paint_toolpath(iv, d3d, arccolor, linecolor, item);
 
             if (base._CADFile.ShowCutWidths)
                 paint_cut_widths(d3d);
@@ -864,10 +722,10 @@ namespace Trochopock
 
         public override MachineOp Clone()
         {
-            return new Mop_matmill(this);
+            return new Sliced_mop(this);
         }
 
-        public Mop_matmill(Mop_matmill src) : base(src)
+        public Sliced_mop(Sliced_mop src) : base(src)
         {
             CutOrdering = src.CutOrdering;
             MillingDirection = src.MillingDirection;
@@ -885,11 +743,11 @@ namespace Trochopock
             Should_draw_chords = src.Should_draw_chords;
         }
 
-        public Mop_matmill()
+        public Sliced_mop()
         {
         }
 
-        public Mop_matmill(CADFile CADFile, ICollection<Entity> plist) : base(CADFile, plist)
+        public Sliced_mop(CADFile CADFile, ICollection<Entity> plist) : base(CADFile, plist)
         {
         }
     }
