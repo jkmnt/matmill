@@ -82,7 +82,7 @@ namespace Matmill
 
             Logger.log("building medial axis");
 
-            Branch tree = new Branch(null);
+            Pocket_branch tree = new Pocket_branch(null);
             bool is_ok = _topo.Build_medial_tree(tree, _tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin);
 
             if (! is_ok)

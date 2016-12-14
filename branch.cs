@@ -7,17 +7,29 @@ using CamBam.Geom;
 
 namespace Matmill
 {
-    class Branch : Medial_branch
+
+    delegate int Branch_visitor(Point2F pt);
+
+    interface Branch
     {
-        private readonly Curve _curve = new Curve();        
-        private readonly Branch Parent = null;
+        void Bisect(Branch_visitor visitor, ref double t, double stop_distance);
+        IEnumerable Children { get; }
+        Point2F Start { get; }
+        Point2F End { get; }
+    }
+
+    class Pocket_branch : Medial_branch, Branch
+    {
+        private readonly Curve _curve = new Curve();
+        private readonly Pocket_branch Parent = null;
+        private readonly List<Pocket_branch> _children = new List<Pocket_branch>();
 
         //--- Medial_branch interface
 
-        public double Deep_distance                 { get { return calc_deep_distance();  } }
-        public double Shallow_distance              { get { return _curve.Length; } }
-        public Point2F Start                        { get { return _curve.Start; } }
-        public Point2F End                          { get { return _curve.End; } }
+        public double Deep_distance { get { return calc_deep_distance(); } }
+        public double Shallow_distance { get { return _curve.Length; } }
+        public Point2F Start { get { return _curve.Start; } }
+        public Point2F End { get { return _curve.End; } }
 
         public void Add_point(Point2F pt)
         {
@@ -26,33 +38,35 @@ namespace Matmill
 
         public Medial_branch Spawn_child()
         {
-            return new Branch(this);
+            return new Pocket_branch(this);
         }
 
         public void Postprocess()
         {
             // sort children so the shortest branch comes first in df traverse
-            this.Children.Sort((a, b) => a.Deep_distance.CompareTo(b.Deep_distance));
+            this._children.Sort((a, b) => a.Deep_distance.CompareTo(b.Deep_distance));
         }
 
         public void Attach_to_parent()
         {
             if (this.Parent == null)
                 throw new Exception("attempt to attach orphaned branch");
-            this.Parent.Children.Add(this);
+            this.Parent._children.Add(this);
         }
 
-        //--- own interface
+        //--- own interface                
+        public bool Is_leaf { get { return _children.Count == 0; } }
 
-        public delegate int Branch_visitor(Point2F pt);        
-        public readonly List<Branch> Children = new List<Branch>();
-        public bool Is_leaf { get { return Children.Count == 0; } }
-
-        public List<Branch> Df_traverse()  //
+        public IEnumerable Children
         {
-            List<Branch> result = new List<Branch>();
+            get { return _children; }
+        }
+
+        public List<Pocket_branch> Df_traverse()  //
+        {
+            List<Pocket_branch> result = new List<Pocket_branch>();
             result.Add(this);
-            foreach (Branch b in Children)
+            foreach (Pocket_branch b in _children)
                 result.AddRange(b.Df_traverse());
             return result;
         }
@@ -60,10 +74,10 @@ namespace Matmill
         public double calc_deep_distance()
         {
             double dist = _curve.Length;
-            foreach (Branch b in Children)
+            foreach (Pocket_branch b in _children)
                 dist += b.Deep_distance;
             return dist;
-        }        
+        }
 
         public void Bisect(Branch_visitor visitor, ref double t, double stop_distance)
         {
@@ -103,9 +117,10 @@ namespace Matmill
             return _curve.To_polyline();
         }
 
-        public Branch(Branch parent)
+        public Pocket_branch(Pocket_branch parent)
         {
             Parent = parent;
         }
     }
+
 }
