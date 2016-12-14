@@ -33,7 +33,7 @@ namespace Matmill
         public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
-        public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}        
+        public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}
 
         private double _min_passable_mic_radius
         {
@@ -53,16 +53,16 @@ namespace Matmill
                 gen = new Sliced_path_generator(_general_tolerance);
             else
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
-            
+
             gen.Append_spiral(slicer.Root_slice.Center, slicer.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_root_slice(slicer.Root_slice);            
+            gen.Append_root_slice(slicer.Root_slice);
 
             for (int i = 1; i < slicer.Sequence.Count; i++)
             {
                 Slice s = slicer.Sequence[i];
-                gen.Append_slice(s, s.Guide);                    
+                gen.Append_slice(s, s.Guide);
             }
-                        
+
             gen.Append_return_to_base(slicer.Gen_return_path());
 
             return gen.Path;
@@ -89,11 +89,11 @@ namespace Matmill
             {
                 Logger.warn("failed to build tree");
                 return null;
-            }            
+            }
 
-            Slicer slicer = new Slicer(_topo.Min, _topo.Max, _general_tolerance);                                    
+            Slicer slicer = new Slicer(_topo.Min, _topo.Max, _general_tolerance);
             slicer.Slice_leadin_angle = _slice_leadin_angle;
-            slicer.Slice_leadout_angle = _slice_leadout_angle;            
+            slicer.Slice_leadout_angle = _slice_leadout_angle;
             slicer.Get_radius = radius_getter;
 
             Logger.log("generating slices");

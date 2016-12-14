@@ -16,7 +16,7 @@ using Matmill;
 namespace Trochopock
 {
     [Serializable]
-    public class Mop_matmill : Sliced_mop, IIcon
+    public class MOPTrochopock : Sliced_mop, IIcon
     {
         //--- invisible and non-serializable properties
 
@@ -153,7 +153,7 @@ namespace Trochopock
                 if (trajectories.Count == 0)
                     return;
 
-                base.insert_toolpaths(trajectories);                
+                base.insert_toolpaths(trajectories);
 
                 if (base.MachineOpStatus == MachineOpStatus.Unknown)
                 {
@@ -173,19 +173,20 @@ namespace Trochopock
 
         public override MachineOp Clone()
         {
-            return new Mop_matmill(this);
+            return new MOPTrochopock(this);
         }
 
-        public Mop_matmill(Mop_matmill src) : base(src)
+        public MOPTrochopock(MOPTrochopock src) : base(src)
         {
         }
 
-        public Mop_matmill()
+        public MOPTrochopock()
         {
         }
 
-        public Mop_matmill(CADFile CADFile, ICollection<Entity> plist) : base(CADFile, plist)
+        public MOPTrochopock(CADFile CADFile, ICollection<Entity> plist) : base(CADFile, plist)
         {
         }
     }
+
 }

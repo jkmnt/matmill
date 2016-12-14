@@ -34,6 +34,12 @@ namespace Matmill
 
 namespace Trochopock
 {
+    [Serializable]
+    public class Mop_matmill : MOPTrochopock
+    {
+
+    }
+
     class Host : Matmill.Logger { };
 
     public static class Trochopock_plug
@@ -47,7 +53,7 @@ namespace Trochopock
                 return;
             }
 
-            Mop_matmill mop = new Mop_matmill(CamBamUI.MainUI.ActiveView.CADFile, CamBamUI.MainUI.ActiveView.Selection);
+            MOPTrochopock mop = new MOPTrochopock(CamBamUI.MainUI.ActiveView.CADFile, CamBamUI.MainUI.ActiveView.Selection);
             CamBamUI.MainUI.InsertMOP(mop);
         }
 
@@ -145,10 +151,11 @@ namespace Trochopock
 
             if (CADFile.ExtraTypes == null)
                 CADFile.ExtraTypes = new List<Type>();
-            CADFile.ExtraTypes.Add(typeof(Mop_matmill));
+            CADFile.ExtraTypes.Add(typeof(MOPTrochopock));
+            CADFile.ExtraTypes.Add(typeof(Mop_matmill));            
 
-            Mop_matmill o = new Mop_matmill();
-            XmlSerializer xmlSerializer = new XmlSerializer(typeof(Mop_matmill));
+            MOPTrochopock o = new MOPTrochopock();
+            XmlSerializer xmlSerializer = new XmlSerializer(typeof(MOPTrochopock));
             MemoryStream stream = new MemoryStream();
             xmlSerializer.Serialize(stream, o);
         }

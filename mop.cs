@@ -720,11 +720,6 @@ namespace Trochopock
                 base.PaintStartPoint(iv, d3d);
         }
 
-        public override MachineOp Clone()
-        {
-            return new Sliced_mop(this);
-        }
-
         public Sliced_mop(Sliced_mop src) : base(src)
         {
             CutOrdering = src.CutOrdering;
