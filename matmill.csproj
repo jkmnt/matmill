@@ -78,6 +78,7 @@
     <Compile Include="medial_builder.cs" />
     <Compile Include="mop.cs" />
     <Compile Include="mop_pocket.cs" />
+    <Compile Include="mop_profile.cs" />
     <Compile Include="path_gen.cs" />
     <Compile Include="plug.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

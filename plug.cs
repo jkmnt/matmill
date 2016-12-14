@@ -46,7 +46,7 @@ namespace Trochopock
     {
         const string plug_text_name = "Trochoidal Pocket";
 
-        private static void mop_onclick(object sender, EventArgs ars)
+        private static void pocket_mop_onclick(object sender, EventArgs ars)
         {
             if (!PolylineUtils.ConfirmSelected(CamBamUI.MainUI.ActiveView))
             {
@@ -54,6 +54,17 @@ namespace Trochopock
             }
 
             MOPTrochopock mop = new MOPTrochopock(CamBamUI.MainUI.ActiveView.CADFile, CamBamUI.MainUI.ActiveView.Selection);
+            CamBamUI.MainUI.InsertMOP(mop);
+        }
+
+        private static void profile_mop_onclick(object sender, EventArgs ars)
+        {
+            if (!PolylineUtils.ConfirmSelected(CamBamUI.MainUI.ActiveView))
+            {
+                return;
+            }
+
+            MOPTrochoprof mop = new MOPTrochoprof(CamBamUI.MainUI.ActiveView.CADFile, CamBamUI.MainUI.ActiveView.Selection);
             CamBamUI.MainUI.InsertMOP(mop);
         }
 
@@ -121,29 +132,46 @@ namespace Trochopock
 
             ToolStripButton button = new ToolStripButton();
             button.ToolTipText = plug_text_name;
-            button.Click += mop_onclick;
+            button.Click += pocket_mop_onclick;
             button.Image = resources.cam_trochopock1;
 
             insert_in_toolbar(button);
         }
 
         public static void InitPlugin(CamBamUI ui)
-        {            
+        {
             ToolStripMenuItem menu_entry;
 
             menu_entry = new ToolStripMenuItem();
             menu_entry.Text = plug_text_name;
-            menu_entry.Click += mop_onclick;
+            menu_entry.Click += pocket_mop_onclick;
             menu_entry.Image = resources.cam_trochopock1;
 
             insert_in_top_menu(ui, menu_entry);
 
             menu_entry = new ToolStripMenuItem();
             menu_entry.Text = plug_text_name;
-            menu_entry.Click += mop_onclick;
+            menu_entry.Click += pocket_mop_onclick;
             menu_entry.Image = resources.cam_trochopock1;
 
             insert_in_context_menu(ui, menu_entry);
+
+
+            menu_entry = new ToolStripMenuItem();
+            menu_entry.Text = "Trochoidal Profile";
+            menu_entry.Click += profile_mop_onclick;
+            menu_entry.Image = resources.cam_trochopock1;
+
+            insert_in_top_menu(ui, menu_entry);
+
+            menu_entry = new ToolStripMenuItem();
+            menu_entry.Text = "Trochoidal Profile";
+            menu_entry.Click += profile_mop_onclick;
+            menu_entry.Image = resources.cam_trochopock1;
+
+            insert_in_context_menu(ui, menu_entry);
+
+
 
             // defer attachment to toolbar until the first show.
             // Custom CAM Toolbar plugin (if installed) may already attached us after Load event, so we react on later Shown event
@@ -152,12 +180,22 @@ namespace Trochopock
             if (CADFile.ExtraTypes == null)
                 CADFile.ExtraTypes = new List<Type>();
             CADFile.ExtraTypes.Add(typeof(MOPTrochopock));
-            CADFile.ExtraTypes.Add(typeof(Mop_matmill));            
+            CADFile.ExtraTypes.Add(typeof(Mop_matmill));
+            CADFile.ExtraTypes.Add(typeof(MOPTrochoprof));
 
-            MOPTrochopock o = new MOPTrochopock();
-            XmlSerializer xmlSerializer = new XmlSerializer(typeof(MOPTrochopock));
-            MemoryStream stream = new MemoryStream();
-            xmlSerializer.Serialize(stream, o);
+            {
+                MOPTrochopock o = new MOPTrochopock();
+                XmlSerializer xmlSerializer = new XmlSerializer(typeof(MOPTrochopock));
+                MemoryStream stream = new MemoryStream();
+                xmlSerializer.Serialize(stream, o);
+            }
+
+            {
+                MOPTrochoprof o = new MOPTrochoprof();
+                XmlSerializer xmlSerializer = new XmlSerializer(typeof(MOPTrochoprof));
+                MemoryStream stream = new MemoryStream();
+                xmlSerializer.Serialize(stream, o);
+            }
         }
     }
 }

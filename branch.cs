@@ -6,23 +6,14 @@ using CamBam.CAD;
 using CamBam.Geom;
 
 namespace Matmill
-{
-
-    delegate int Branch_visitor(Point2F pt);
-
-    interface Branch
+{       
+    class Branch : Medial_branch
     {
-        void Bisect(Branch_visitor visitor, ref double t, double stop_distance);
-        IEnumerable Children { get; }
-        Point2F Start { get; }
-        Point2F End { get; }
-    }
+        public delegate int Branch_visitor(Point2F pt);
 
-    class Pocket_branch : Medial_branch, Branch
-    {
         private readonly Curve _curve = new Curve();
-        private readonly Pocket_branch Parent = null;
-        private readonly List<Pocket_branch> _children = new List<Pocket_branch>();
+        private readonly Branch Parent = null;
+        private readonly List<Branch> _children = new List<Branch>();
 
         //--- Medial_branch interface
 
@@ -38,7 +29,7 @@ namespace Matmill
 
         public Medial_branch Spawn_child()
         {
-            return new Pocket_branch(this);
+            return new Branch(this);
         }
 
         public void Postprocess()
@@ -62,11 +53,11 @@ namespace Matmill
             get { return _children; }
         }
 
-        public List<Pocket_branch> Df_traverse()  //
+        public List<Branch> Df_traverse()  //
         {
-            List<Pocket_branch> result = new List<Pocket_branch>();
+            List<Branch> result = new List<Branch>();
             result.Add(this);
-            foreach (Pocket_branch b in _children)
+            foreach (Branch b in _children)
                 result.AddRange(b.Df_traverse());
             return result;
         }
@@ -74,7 +65,7 @@ namespace Matmill
         public double calc_deep_distance()
         {
             double dist = _curve.Length;
-            foreach (Pocket_branch b in _children)
+            foreach (Branch b in _children)
                 dist += b.Deep_distance;
             return dist;
         }
@@ -117,7 +108,7 @@ namespace Matmill
             return _curve.To_polyline();
         }
 
-        public Pocket_branch(Pocket_branch parent)
+        public Branch(Branch parent)
         {
             Parent = parent;
         }

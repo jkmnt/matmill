@@ -15,6 +15,8 @@ namespace Matmill
         private readonly Polyline _outline;
         private readonly Polyline[] _islands;
         private readonly T4 _t4;
+        bool is_t4_populated = false;
+
 
         public Point2F Min
         {
@@ -24,6 +26,16 @@ namespace Matmill
         public Point2F Max
         {
             get { return new Point2F(_t4.Rect.Xmax - T4_MARGIN, _t4.Rect.Ymax - T4_MARGIN); }
+        }
+
+        private void populate_t4()
+        {
+            if (is_t4_populated)
+                return;
+            insert_in_t4(_outline);
+            foreach (Polyline island in _islands)
+                insert_in_t4(island);
+            is_t4_populated = true;
         }
 
         private void insert_in_t4(Polyline p)
@@ -92,8 +104,25 @@ namespace Matmill
             return points;
         }
 
+        public List<Point2F> sample_curve_exact(Polyline p, double step)
+        {
+            List<Point2F> points = new List<Point2F>();
+            foreach (Point3F pt in PointListUtils.CreatePointlistFromPolylineStep(p, step).Points)
+                points.Add((Point2F)pt);
+
+            Point2F last_sample = points[points.Count - 1];
+            Point2F poly_end = (Point2F)p.LastPoint;
+
+            if (last_sample.DistanceTo(poly_end) > step * 0.001)            
+                points.Add(poly_end);            
+
+            return points;
+        }
+
         public double Get_dist_to_wall(Point2F pt)
         {
+            populate_t4();
+
             double radius = double.MaxValue;
             foreach (object item in _t4.Get_nearest_objects(pt.X, pt.Y))
             {
@@ -125,6 +154,17 @@ namespace Matmill
             return plist;
         }
 
+        public List<Point2F> Get_samples_exact(double sample_step)
+        {
+            List<Point2F> plist = new List<Point2F>();
+
+            plist.AddRange(sample_curve_exact(_outline, sample_step));
+            foreach (Polyline p in _islands)
+                plist.AddRange(sample_curve_exact(p, sample_step));
+
+            return plist;
+        }
+
         public bool Build_medial_tree(Medial_branch tree, double sample_step, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
         {
             List<Point2F> samples = Get_samples(sample_step);
@@ -144,10 +184,6 @@ namespace Matmill
             _outline.GetExtrema(ref min, ref max);
 
             _t4 = new T4(new T4_rect(min.X - T4_MARGIN, min.Y - T4_MARGIN, max.X + T4_MARGIN, max.Y + T4_MARGIN));
-
-            insert_in_t4(_outline);
-            foreach (Polyline island in _islands)
-                insert_in_t4(island);
         }
     }
 
@@ -279,7 +315,7 @@ namespace Matmill
 
         public void Add(Circle2F ball, object obj)
         {
-            this.Add(ball.Center, ball.Radius, obj);         
+            this.Add(ball.Center, ball.Radius, obj);
         }
 
         public Ballfield_topographer(Point2F min, Point2F max)
