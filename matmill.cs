@@ -44,7 +44,7 @@ namespace Matmill
             return _topo.Get_dist_to_wall(pt) - _tool_r - _margin;
         }
 
-        private Sliced_path generate_path(Slicer slicer)
+        private Sliced_path generate_path(Slice_sequence sequence)
         {
             Sliced_path_generator gen;
 
@@ -53,16 +53,16 @@ namespace Matmill
             else
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
-            gen.Append_spiral(slicer.Root_slice.Center, slicer.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_root_slice(slicer.Root_slice);
+            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+            gen.Append_root_slice(sequence.Root_slice);
 
-            for (int i = 1; i < slicer.Sequence.Count; i++)
+            for (int i = 1; i < sequence.Slices.Count; i++)
             {
-                Slice s = slicer.Sequence[i];
+                Slice s = sequence.Slices[i];
                 gen.Append_slice(s, s.Guide);
             }
 
-            gen.Append_return_to_base(slicer.Gen_return_path());
+            gen.Append_return_to_base(sequence.Trace_return_to_root());
 
             return gen.Path;
         }
@@ -96,10 +96,10 @@ namespace Matmill
             slicer.Get_radius = radius_getter;
 
             Logger.log("generating slices");
-            slicer.Run(tree, _tool_r, _max_ted, _min_ted, _dir);
+            Slice_sequence sequence = slicer.Run(tree, _tool_r, _max_ted, _min_ted, _dir);
 
             Logger.log("generating path");
-            return generate_path(slicer);
+            return generate_path(sequence);
         }
 
         public Pocket_generator(Polyline outline, Polyline[] islands)

@@ -5,30 +5,14 @@ using CamBam.Geom;
 
 namespace Matmill
 {
-    class Slicer
-    {        
-        public delegate double Get_radius_delegate(Point2F pt);
-
-        private const double TED_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
-        private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
-
+    class Slice_sequence
+    {
         private double _general_tolerance;
         private Ballfield_topographer _topo;
+        public List<Slice> Slices = new List<Slice>();
 
-        private double _min_ted;
-        private double _max_ted;
-        private double _tool_r;
-        private RotationDirection _dir;
-
-        public List<Slice> Sequence = new List<Slice>();
-
-        public double Slice_leadin_angle = 3 * Math.PI / 180;
-        public double Slice_leadout_angle = 0.5 * Math.PI / 180;
-
-        public Slice Root_slice { get { return Sequence.Count > 0 ? Sequence[0] : null; } }
-        public Slice Last_slice { get { return Sequence.Count > 0 ? Sequence[Sequence.Count - 1] : null; } }
-        // NOTE: radius getter may return 0 if radius is too small or invalid
-        public Get_radius_delegate Get_radius = x => 0;
+        public Slice Root_slice { get { return Slices.Count > 0 ? Slices[0] : null; } }
+        public Slice Last_slice { get { return Slices.Count > 0 ? Slices[Slices.Count - 1] : null; } }
 
         // XXX: refactor me
         private static List<Slice> find_lca_path(Slice dst, Slice src)
@@ -71,7 +55,7 @@ namespace Matmill
             return path;
         }
 
-        private List<Slice> find_colliding_slices(Slice s)
+        public List<Slice> Find_slices_colliding_with(Slice s)
         {
             Point2F min = Point2F.Undefined;
             Point2F max = Point2F.Undefined;
@@ -80,7 +64,7 @@ namespace Matmill
             return _topo.Get_colliding_objects<Slice>(min, max);
         }
 
-        private List<Point2F> trace_branch_switch(Slice dst, Slice src)
+        public List<Point2F> Trace_branch_switch(Slice dst, Slice src)
         {
             // follow the lca path, while looking for a shortcut to reduce travel time
             // TODO: skip parts of path to reduce travel even more
@@ -100,7 +84,7 @@ namespace Matmill
             return knots;
         }
 
-        private List<Point2F> trace_return_to_base()
+        public List<Point2F> Trace_return_to_root()
         {
             Point2F current = Last_slice.End;
             Point2F end = Root_slice.Center;
@@ -120,7 +104,41 @@ namespace Matmill
             path.Add(end);
 
             return path;
-        }        
+        }
+
+        public void Add(Slice s)
+        {
+            Slices.Add(s);
+            _topo.Add(s.Ball, s);
+        }
+
+        public Slice_sequence(Point2F min, Point2F max, double general_tolerance)
+        {
+            _general_tolerance = general_tolerance;
+            _topo = new Ballfield_topographer(min, max);
+        }
+    }
+
+    class Slicer
+    {
+        public delegate double Get_radius_delegate(Point2F pt);
+
+        private const double TED_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
+        private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
+
+        private double _general_tolerance;
+        private Slice_sequence _sequence;        
+
+        private double _min_ted;
+        private double _max_ted;
+        private double _tool_r;
+        private RotationDirection _dir;
+
+        public double Slice_leadin_angle = 3 * Math.PI / 180;
+        public double Slice_leadout_angle = 0.5 * Math.PI / 180;
+
+        // NOTE: radius getter may return 0 if radius is too small or invalid
+        public Get_radius_delegate Get_radius = x => 0;
 
         private int evaluate_possible_slice(Slice parent, Point2F pt, ref Slice _candidate)
         {
@@ -128,7 +146,7 @@ namespace Matmill
 
             if (radius <= 0) return -1; // assuming the branch is always starting from passable mics, so it's a narrow channel and we should be more conservative, go left
 
-            Slice s = new Slice(parent, pt, radius, _dir, _tool_r, Last_slice != null ? Last_slice.End : Point2F.Undefined);
+            Slice s = new Slice(parent, pt, radius, _dir, _tool_r, _sequence.Last_slice != null ? _sequence.Last_slice.End : Point2F.Undefined);
 
             if (s.Placement != Slice_placement.NORMAL)
             {
@@ -140,7 +158,7 @@ namespace Matmill
             // intersection
             // XXX: is this candidate is better than the last ?
             _candidate = s;
-            s.Refine(find_colliding_slices(s), _tool_r, _tool_r);
+            s.Refine(_sequence.Find_slices_colliding_with(s), _tool_r, _tool_r);
 
             if (s.Max_ted > _max_ted) return -1;                                            // overshoot, go left
             if ((_max_ted - s.Max_ted) / _max_ted > TED_TOLERANCE_PERCENTAGE) return 1;     // undershoot outside the strict TED tolerance, go right
@@ -174,10 +192,10 @@ namespace Matmill
                 // if last slice was a root slice, adjust root slice startpoint to remove extra travel and
                 // append leadout to the candindate. leadin is not needed, since join with root will be exact
                 // otherwise append both leadin and leadout
-                if (Last_slice == Root_slice)
+                if (_sequence.Last_slice == _sequence.Root_slice)
                 {
                     Logger.log("changing startpoint of root slice");
-                    Root_slice.Change_startpoint(new_slice.Start);
+                    _sequence.Root_slice.Change_startpoint(new_slice.Start);
                     new_slice.Append_leadin_and_leadout(0, Slice_leadout_angle);
                 }
                 else
@@ -186,45 +204,36 @@ namespace Matmill
                 }
 
                 // generate guide move if this slice is not a simple continuation
-                if (parent_slice != Last_slice)
-                    new_slice.Guide = trace_branch_switch(new_slice, Last_slice);
+                if (parent_slice != _sequence.Last_slice)
+                    new_slice.Guide = _sequence.Trace_branch_switch(new_slice, _sequence.Last_slice);
 
-                Sequence.Add(new_slice);
-                _topo.Add(new_slice.Ball, new_slice);
+                _sequence.Add(new_slice);
                 parent_slice = new_slice;
             }
 
             // need to go deeper
             foreach (Branch b in branch.Children)
                 trace_branch(b, parent_slice);
-        }
+        }        
 
-        public List<Point2F> Gen_return_path()
-        {
-            return trace_return_to_base();
-        }
-
-        public void Run(Branch root, double tool_r, double max_ted, double min_ted, RotationDirection dir)
+        public Slice_sequence Run(Branch root, double tool_r, double max_ted, double min_ted, RotationDirection dir)
         {
             _min_ted = min_ted;
             _max_ted = max_ted;
             _tool_r = tool_r;
-            _dir = dir;
-
-            _topo = new Ballfield_topographer(_topo.Min, _topo.Max);
-            Sequence.Clear();
+            _dir = dir;                                   
 
             Slice root_slice = new Slice(root.Start, Get_radius(root.Start), _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-
-            Sequence.Add(root_slice);
-            _topo.Add(root_slice.Ball, root_slice);
+            _sequence.Add(root_slice);                        
 
             trace_branch(root, root_slice);
+
+            return _sequence;
         }
 
         public Slicer(Point2F min, Point2F max, double general_tolerance)
         {
-            _topo = new Ballfield_topographer(min, max);
+            _sequence = new Slice_sequence(min, max, general_tolerance);            
             _general_tolerance = general_tolerance;
         }
     }
