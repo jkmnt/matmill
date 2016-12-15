@@ -10,6 +10,7 @@ using CamBam.CAD;
 using CamBam.CAM;
 using CamBam.Geom;
 using CamBam.UI;
+using CamBam.Values;
 
 using Matmill;
 
@@ -18,6 +19,10 @@ namespace Trochopock
     [Serializable]
     public class MOPTrochopock : Sliced_mop, IIcon
     {
+        //--- mop properties
+
+        protected double _min_stepover_percentage = 0.9;
+
         //--- invisible and non-serializable properties
 
         [XmlIgnore, Browsable(false)]
@@ -48,6 +53,30 @@ namespace Trochopock
         public string InactiveIconKey
         {
             get { return "cam_trochopock0"; }
+        }
+
+        //--- our own new parameters. No reason to make them CBValues, since they couldn't be styled anyway
+
+        [
+            CBAdvancedValue,
+            Category("Step Over"),
+            DefaultValue(0.9),
+            Description("Minimum allowed stepover as a percentage of the nominal stepover (0.1 - 0.9).\nLarger values may leave uncut corners"),
+            DisplayName("Minimum Stepover")
+        ]
+        public double Min_stepover
+        {
+            get { return _min_stepover_percentage; }
+            set
+            {
+                _min_stepover_percentage = value;
+
+                if (value < 0.05 || value > 0.95)
+                {
+                    _min_stepover_percentage = Math.Max(Math.Min(0.95, value), 0.05);
+                    base.redraw_parameters();
+                }
+            }
         }
 
         private Sliced_path gen_pocket(ShapeListItem shape)
@@ -178,6 +207,7 @@ namespace Trochopock
 
         public MOPTrochopock(MOPTrochopock src) : base(src)
         {
+            Min_stepover = src.Min_stepover;
         }
 
         public MOPTrochopock()

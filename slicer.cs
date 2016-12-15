@@ -119,7 +119,7 @@ namespace Matmill
         }
     }
 
-    class Slicer
+    class Branch_slicer
     {
         public delegate double Get_radius_delegate(Point2F pt);
 
@@ -127,7 +127,7 @@ namespace Matmill
         private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
 
         private double _general_tolerance;
-        private Slice_sequence _sequence;        
+        private Slice_sequence _sequence;
 
         private double _min_ted;
         private double _max_ted;
@@ -146,7 +146,7 @@ namespace Matmill
 
             if (radius <= 0) return -1; // assuming the branch is always starting from passable mics, so it's a narrow channel and we should be more conservative, go left
 
-            Slice s = new Slice(parent, pt, radius, _dir, _tool_r, _sequence.Last_slice != null ? _sequence.Last_slice.End : Point2F.Undefined);
+            Slice s = new Slice(parent, pt, radius, _dir, _tool_r, _sequence.Last_slice.End);
 
             if (s.Placement != Slice_placement.NORMAL)
             {
@@ -214,26 +214,73 @@ namespace Matmill
             // need to go deeper
             foreach (Branch b in branch.Children)
                 trace_branch(b, parent_slice);
-        }        
+        }
 
         public Slice_sequence Run(Branch root, double tool_r, double max_ted, double min_ted, RotationDirection dir)
         {
             _min_ted = min_ted;
             _max_ted = max_ted;
             _tool_r = tool_r;
-            _dir = dir;                                   
+            _dir = dir;
 
             Slice root_slice = new Slice(root.Start, Get_radius(root.Start), _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            _sequence.Add(root_slice);                        
+            _sequence.Add(root_slice);
 
             trace_branch(root, root_slice);
 
             return _sequence;
         }
 
-        public Slicer(Point2F min, Point2F max, double general_tolerance)
+        public Branch_slicer(Point2F min, Point2F max, double general_tolerance)
         {
-            _sequence = new Slice_sequence(min, max, general_tolerance);            
+            _sequence = new Slice_sequence(min, max, general_tolerance);
+            _general_tolerance = general_tolerance;
+        }
+    }
+
+    class Bypoint_slicer
+    {
+        private double _general_tolerance;
+        private Slice_sequence _sequence;
+
+        public double Slice_leadin_angle = 3 * Math.PI / 180;
+        public double Slice_leadout_angle = 0.5 * Math.PI / 180;
+
+        public Slice_sequence Run(List<Point2F> points, double tool_r, double slice_radius, RotationDirection dir)
+        {
+            Slice root_slice = new Slice(points[0], slice_radius, dir == RotationDirection.Unknown ? RotationDirection.CCW : dir);
+            _sequence.Add(root_slice);
+
+            for (int i = 1; i < points.Count; i++)
+            {
+                Slice new_slice = new Slice(_sequence.Last_slice, points[i], slice_radius, dir, tool_r, _sequence.Last_slice.End);
+
+                if (new_slice.Placement != Slice_placement.NORMAL)
+                    throw new Exception("bad slice placement");
+
+                if (true)
+                    new_slice.Refine(_sequence.Find_slices_colliding_with(new_slice), tool_r, tool_r);
+
+                if (i == 1)
+                {
+                    Logger.log("changing startpoint of root slice");
+                    _sequence.Root_slice.Change_startpoint(new_slice.Start);
+                    new_slice.Append_leadin_and_leadout(0, Slice_leadout_angle);
+                }
+                else
+                {
+                    new_slice.Append_leadin_and_leadout(Slice_leadin_angle, Slice_leadout_angle);
+                }
+                _sequence.Add(new_slice);
+            }
+
+            return _sequence;
+        }
+
+
+        public Bypoint_slicer(Point2F min, Point2F max, double general_tolerance)
+        {
+            _sequence = new Slice_sequence(min, max, general_tolerance);
             _general_tolerance = general_tolerance;
         }
     }

@@ -59,8 +59,10 @@ namespace Trochopock
             gen.Max_ted = base.ToolDiameter.Cached * _stepover.Cached;
             //gen.Min_ted = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
 
-            gen.Startpoint = (Point2F)base.StartPoint.Cached;
+            //gen.Startpoint = (Point2F)base.StartPoint.Cached;
             //gen.Margin = base.RoughingClearance.Cached;
+
+            // XXX: for now
             gen.Slice_radius = base.ToolDiameter.Cached / 2;
 
             if (_milling_direction.Cached == MillingDirectionOptions.Mixed || base.SpindleDirection.Cached == SpindleDirectionOptions.Off)

@@ -60,8 +60,7 @@ namespace Trochopock
         protected CBValue<Matrix4x4F> _transform = default(CBValue<Matrix4x4F>);
         protected double _chord_feedrate = 0;
         protected double _spiral_feedrate = 0;
-
-        protected double _min_stepover_percentage = 0.9;
+        
         protected bool _may_return_to_base = true;
         protected bool _should_smooth_chords = false;
         protected bool _should_draw_chords = false;
@@ -162,28 +161,6 @@ namespace Trochopock
         {
             get { return _spiral_feedrate; }
             set { _spiral_feedrate = value; }
-        }
-
-        [
-            CBAdvancedValue,
-            Category("Step Over"),
-            DefaultValue(0.9),
-            Description("Minimum allowed stepover as a percentage of the nominal stepover (0.1 - 0.9).\nLarger values may leave uncut corners"),
-            DisplayName("Minimum Stepover")
-        ]
-        public double Min_stepover
-        {
-            get { return _min_stepover_percentage; }
-            set
-            {
-                _min_stepover_percentage = value;
-
-                if (value < 0.05 || value > 0.95)
-                {
-                    _min_stepover_percentage = Math.Max(Math.Min(0.95, value), 0.05);
-                    redraw_parameters();
-                }
-            }
         }
 
         [
@@ -320,7 +297,7 @@ namespace Trochopock
             return p;
         }
 
-        private void redraw_parameters()
+        protected void redraw_parameters()
         {
             CamBamUI.MainUI.ObjectProperties.Refresh();
         }
@@ -731,8 +708,7 @@ namespace Trochopock
             LeadInMove = src.LeadInMove;
 
             Chord_feedrate = src.Chord_feedrate;
-            Spiral_feedrate = src.Spiral_feedrate;
-            Min_stepover = src.Min_stepover;
+            Spiral_feedrate = src.Spiral_feedrate;            
             May_return_to_base = src.May_return_to_base;
             Should_smooth_chords = src.Should_smooth_chords;
             Should_draw_chords = src.Should_draw_chords;
