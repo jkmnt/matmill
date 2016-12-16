@@ -14,10 +14,10 @@ using CamBam.Values;
 
 using Matmill;
 
-namespace Trochopock
+namespace Trochomops
 {
     [Serializable]
-    public class MOPTrochoprof : Sliced_mop, IIcon
+    public class MOPTrochoprof : Trochomop, IIcon
     {
         protected CBValue<InsideOutsideOptions> _cut_side;
         protected CBValue<double> _cut_width;
@@ -156,7 +156,7 @@ namespace Trochopock
                     startpoint = lastpt(trajectories);
 
                 Sliced_path toolpath = gen_toolpath(p, cut_width, startpoint);
-                if (toolpath != null)                
+                if (toolpath != null)
                     trajectories.Add(toolpath);
             }
 
@@ -174,7 +174,7 @@ namespace Trochopock
                 if (trajectories.Count != 0)
                     startpoint = lastpt(trajectories);
                 trajectories.AddRange(gen_profile(hole, !is_inside, startpoint));
-            }                
+            }
 
             return trajectories;
         }
@@ -187,21 +187,21 @@ namespace Trochopock
 
                 if (base.ToolDiameter.Cached == 0)
                 {
-                    Host.err("tool diameter is zero");
+                    Logger.err("tool diameter is zero");
                     base.MachineOpStatus = MachineOpStatus.Errors;
                     return;
                 }
 
                 if (_cut_width.Cached != 0 && _cut_width.Cached < base.ToolDiameter.Cached * 1.05)
                 {
-                    Host.err("cut width is too small");
+                    Logger.err("cut width is too small");
                     base.MachineOpStatus = MachineOpStatus.Errors;
                     return;
                 }
 
                 if (_stepover.Cached == 0 || _stepover.Cached > 1)
                 {
-                    Host.err("stepover should be > 0 and <= 1");
+                    Logger.err("stepover should be > 0 and <= 1");
                     base.MachineOpStatus = MachineOpStatus.Errors;
                     return;
                 }
@@ -222,8 +222,8 @@ namespace Trochopock
 
                 foreach (ShapeListItem shape in shapes)
                 {
-                    if (trajectories.Count != 0)                    
-                        startpoint = lastpt(trajectories);                    
+                    if (trajectories.Count != 0)
+                        startpoint = lastpt(trajectories);
 
                     if (shape.Shape is Polyline)
                         trajectories.AddRange(gen_profile((Polyline)shape.Shape, is_inside, startpoint));

@@ -5,13 +5,15 @@ using System.Collections.Generic;
 using CamBam.CAD;
 using CamBam.Geom;
 
+using Geom;
+
 namespace Matmill
 {       
     class Branch : Medial_branch
     {
         public delegate int Branch_visitor(Point2F pt);
 
-        private readonly Curve _curve = new Curve();
+        private readonly Curve2d _curve = new Curve2d();
         private readonly Branch Parent = null;
         private readonly List<Branch> _children = new List<Branch>();
 

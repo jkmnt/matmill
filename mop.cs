@@ -15,7 +15,7 @@ using CamBam.Util;
 
 using Matmill;
 
-namespace Trochopock
+namespace Trochomops
 {
     // toolpath combines flat trajectory and depth
     class Toolpath
@@ -35,7 +35,7 @@ namespace Trochopock
     }
 
     [Serializable]
-    public class Sliced_mop : MOPFromGeometry
+    public class Trochomop : MOPFromGeometry
     {
         [NonSerialized]
         private List<Sliced_path> _trajectories = new List<Sliced_path>();
@@ -60,7 +60,7 @@ namespace Trochopock
         protected CBValue<Matrix4x4F> _transform = default(CBValue<Matrix4x4F>);
         protected double _chord_feedrate = 0;
         protected double _spiral_feedrate = 0;
-        
+
         protected bool _may_return_to_base = true;
         protected bool _should_smooth_chords = false;
         protected bool _should_draw_chords = false;
@@ -426,7 +426,7 @@ namespace Trochopock
 
             double cut_len = leadins_len + spirals_len + slices_len + moves_len;
 
-            Host.log(2, TextTranslation.Translate("Toolpath distance '{0}' : {1} + rapids : {2} = total : {3}"),
+            Logger.log(2, TextTranslation.Translate("Toolpath distance '{0}' : {1} + rapids : {2} = total : {3}"),
                                                   base.Name,
                                                   cut_len,
                                                   rapids_len,
@@ -454,7 +454,7 @@ namespace Trochopock
             TimeSpan rapids_dur = new TimeSpan(0, 0, (int)(rapid_time * 60.0));
 
 
-            Host.log(2, TextTranslation.Translate("Estimated Toolpath '{0}' duration : {1} + rapids : {2} = total : {3}"),
+            Logger.log(2, TextTranslation.Translate("Estimated Toolpath '{0}' duration : {1} + rapids : {2} = total : {3}"),
                                                   base.Name,
                                                   cut_dur,
                                                   rapids_dur,
@@ -477,6 +477,8 @@ namespace Trochopock
             _toolpaths = gen_ordered_toolpath(_trajectories, bottoms);
             _visual_cut_widths = calc_visual_cut_widths(_trajectories, bottoms[bottoms.Length - 1]);  // for the last depth only
             _visual_rapids = calc_visual_rapids(_toolpaths);
+
+            print_toolpath_stats(_toolpaths, _visual_rapids);
         }
 
         private void emit_toolpath(MachineOpToGCode gcg, Toolpath path)
@@ -697,7 +699,7 @@ namespace Trochopock
                 base.PaintStartPoint(iv, d3d);
         }
 
-        public Sliced_mop(Sliced_mop src) : base(src)
+        public Trochomop(Trochomop src) : base(src)
         {
             CutOrdering = src.CutOrdering;
             MillingDirection = src.MillingDirection;
@@ -708,17 +710,17 @@ namespace Trochopock
             LeadInMove = src.LeadInMove;
 
             Chord_feedrate = src.Chord_feedrate;
-            Spiral_feedrate = src.Spiral_feedrate;            
+            Spiral_feedrate = src.Spiral_feedrate;
             May_return_to_base = src.May_return_to_base;
             Should_smooth_chords = src.Should_smooth_chords;
             Should_draw_chords = src.Should_draw_chords;
         }
 
-        public Sliced_mop()
+        public Trochomop()
         {
         }
 
-        public Sliced_mop(CADFile CADFile, ICollection<Entity> plist) : base(CADFile, plist)
+        public Trochomop(CADFile CADFile, ICollection<Entity> plist) : base(CADFile, plist)
         {
         }
     }

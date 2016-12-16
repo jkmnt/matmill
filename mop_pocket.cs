@@ -14,10 +14,10 @@ using CamBam.Values;
 
 using Matmill;
 
-namespace Trochopock
+namespace Trochomops
 {
     [Serializable]
-    public class MOPTrochopock : Sliced_mop, IIcon
+    public class MOPTrochopock : Trochomop, IIcon
     {
         //--- mop properties
 
@@ -134,15 +134,15 @@ namespace Trochopock
                 base.reset_toolpaths();
 
                 if (base.ToolDiameter.Cached == 0)
-                {
-                    Host.err("tool diameter is zero");
+                {                    
+                    Logger.err("tool diameter is zero");
                     base.MachineOpStatus = MachineOpStatus.Errors;
                     return;
                 }
 
                 if (_stepover.Cached == 0 || _stepover.Cached > 1)
                 {
-                    Host.err("stepover should be > 0 and <= 1");
+                    Logger.err("stepover should be > 0 and <= 1");
                     base.MachineOpStatus = MachineOpStatus.Errors;
                     return;
                 }
@@ -166,7 +166,7 @@ namespace Trochopock
                 }
                 if (found_opened_polylines)
                 {
-                    Host.warn("ignoring open polylines");
+                    Logger.warn("ignoring open polylines");
                     base.MachineOpStatus = MachineOpStatus.Warnings;
                 }
 

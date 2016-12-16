@@ -7,8 +7,8 @@
     <ProjectGuid>{26D59F35-CF38-4714-8036-5038537EA2BA}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
-    <RootNamespace>Trochopock</RootNamespace>
-    <AssemblyName>trochopock</AssemblyName>
+    <RootNamespace>Trochomops</RootNamespace>
+    <AssemblyName>trochomops</AssemblyName>
     <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
@@ -72,7 +72,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="branch.cs" />
-    <Compile Include="curve.cs" />
     <Compile Include="geom.cs" />
     <Compile Include="matmill.cs" />
     <Compile Include="medial_builder.cs" />
@@ -98,7 +97,7 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="resources.resx">
-      <Generator>ResXFileCodeGenerator</Generator>
+      <Generator>PublicResXFileCodeGenerator</Generator>
       <LastGenOutput>resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
   </ItemGroup>

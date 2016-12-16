@@ -23,26 +23,25 @@ namespace Matmill
         }
         static public void warn(string s, params object[] args)
         {
-            ThisApplication.AddLogMessage("TrochoPock warning: " + s, args);
+            ThisApplication.AddLogMessage("Trocho warning: " + s, args);
         }
         static public void err(string s, params object[] args)
         {
-            ThisApplication.AddLogMessage("TrochoPock error: " + s, args);
+            ThisApplication.AddLogMessage("Trocho error: " + s, args);
         }
     }
 }
 
-namespace Trochopock
+namespace Trochomops
 {
+    // alias for compatibility with the old name of trochoidal pocket
     [Serializable]
     public class Mop_matmill : MOPTrochopock
     {
 
     }
 
-    class Host : Matmill.Logger { };
-
-    public static class Trochopock_plug
+    public static class Plug
     {
         const string pocket_mop_name = "Trochoidal Pocket";
         const string profile_mop_name = "Trochoidal Profile";

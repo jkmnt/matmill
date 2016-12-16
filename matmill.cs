@@ -6,8 +6,8 @@ using CamBam.CAD;
 using CamBam.Geom;
 
 namespace Matmill
-{
-    class Pocket_generator
+{    
+    public class Pocket_generator
     {
         private readonly Topographer _topo;
 
@@ -54,14 +54,7 @@ namespace Matmill
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
             gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_root_slice(sequence.Root_slice);
-
-            for (int i = 1; i < sequence.Slices.Count; i++)
-            {
-                Slice s = sequence.Slices[i];
-                gen.Append_slice(s, s.Guide);
-            }
-
+            gen.Append_slice_sequence(sequence);
             gen.Append_return_to_base(sequence.Trace_return_to_root());
 
             return gen.Path;
@@ -109,7 +102,7 @@ namespace Matmill
     }
 
 
-    class Engrave_generator
+    public class Engrave_generator
     {
         private const double TED_TOLERANCE_PERCENTAGE = 0.001;  // 0.1 %
         private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
@@ -216,14 +209,7 @@ namespace Matmill
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
             gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_root_slice(sequence.Root_slice);
-
-            for (int i = 1; i < sequence.Slices.Count; i++)
-            {
-                Slice s = sequence.Slices[i];
-                gen.Append_slice(s, s.Guide);
-            }
-
+            gen.Append_slice_sequence(sequence);
             gen.Append_return_to_base(sequence.Trace_return_to_root());
 
             return gen.Path;

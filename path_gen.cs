@@ -8,7 +8,7 @@ using Geom;
 
 namespace Matmill
 {
-    enum Sliced_path_item_type
+    public enum Sliced_path_item_type
     {
         SLICE,
         SPIRAL,
@@ -20,9 +20,9 @@ namespace Matmill
         DEBUG_MEDIAL_AXIS,
     }
 
-    class Sliced_path : List<Sliced_path_item> { }
+    public class Sliced_path : List<Sliced_path_item> { }
 
-    class Sliced_path_item: Polyline
+    public class Sliced_path_item: Polyline
     {
         public readonly Sliced_path_item_type Item_type;
 
@@ -46,7 +46,7 @@ namespace Matmill
             base.Add(new Point3F(pt.X, pt.Y, 0));
         }
 
-        public void Add(Curve curve)
+        public void Add(Curve2d curve)
         {
             foreach (Point2F pt in curve.Points)
                 this.Add(pt);
@@ -114,7 +114,7 @@ namespace Matmill
         public void Append_root_slice(Slice slice)
         {
             append_slice(slice);
-        }        
+        }
 
         public virtual void Append_slice(Slice slice, List<Point2F> guide)
         {
@@ -136,7 +136,7 @@ namespace Matmill
 
                 Path.Add(p);
             }
-            
+
             append_slice(slice);
         }
 
@@ -149,6 +149,17 @@ namespace Matmill
                 p.Add(pt);
 
             Path.Add(p);
+        }
+
+        public void Append_slice_sequence(Slice_sequence sequence)
+        {
+            this.Append_root_slice(sequence.Root_slice);
+
+            for (int i = 1; i < sequence.Slices.Count; i++)
+            {
+                Slice s = sequence.Slices[i];
+                this.Append_slice(s, s.Guide);
+            }
         }
 
         public Sliced_path_generator(double general_tolerance)
@@ -256,7 +267,7 @@ namespace Matmill
                 }
             }
 
-            base.Append_slice(slice, guide);            
+            base.Append_slice(slice, guide);
         }
 
         public Sliced_path_smooth_generator(double general_tolerance, double min_arc_len) : base(general_tolerance)
