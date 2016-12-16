@@ -44,7 +44,8 @@ namespace Trochopock
 
     public static class Trochopock_plug
     {
-        const string plug_text_name = "Trochoidal Pocket";
+        const string pocket_mop_name = "Trochoidal Pocket";
+        const string profile_mop_name = "Trochoidal Profile";
 
         private static void pocket_mop_onclick(object sender, EventArgs ars)
         {
@@ -130,8 +131,17 @@ namespace Trochopock
         {
             ThisApplication.TopWindow.Shown -= on_window_shown;
 
-            ToolStripButton button = new ToolStripButton();
-            button.ToolTipText = plug_text_name;
+            ToolStripButton button;
+
+            button = new ToolStripButton();
+            button.ToolTipText = profile_mop_name;
+            button.Click += profile_mop_onclick;
+            button.Image = resources.cam_trochoprof1;
+
+            insert_in_toolbar(button);
+
+            button = new ToolStripButton();
+            button.ToolTipText = pocket_mop_name;
             button.Click += pocket_mop_onclick;
             button.Image = resources.cam_trochopock1;
 
@@ -143,35 +153,32 @@ namespace Trochopock
             ToolStripMenuItem menu_entry;
 
             menu_entry = new ToolStripMenuItem();
-            menu_entry.Text = plug_text_name;
+            menu_entry.Text = profile_mop_name;
+            menu_entry.Click += profile_mop_onclick;
+            menu_entry.Image = resources.cam_trochoprof1;
+
+            insert_in_top_menu(ui, menu_entry);
+
+            menu_entry = new ToolStripMenuItem();
+            menu_entry.Text = profile_mop_name;
+            menu_entry.Click += profile_mop_onclick;
+            menu_entry.Image = resources.cam_trochoprof1;
+
+            insert_in_context_menu(ui, menu_entry);
+
+            menu_entry = new ToolStripMenuItem();
+            menu_entry.Text = pocket_mop_name;
             menu_entry.Click += pocket_mop_onclick;
             menu_entry.Image = resources.cam_trochopock1;
 
             insert_in_top_menu(ui, menu_entry);
 
             menu_entry = new ToolStripMenuItem();
-            menu_entry.Text = plug_text_name;
+            menu_entry.Text = pocket_mop_name;
             menu_entry.Click += pocket_mop_onclick;
             menu_entry.Image = resources.cam_trochopock1;
 
             insert_in_context_menu(ui, menu_entry);
-
-
-            menu_entry = new ToolStripMenuItem();
-            menu_entry.Text = "Trochoidal Profile";
-            menu_entry.Click += profile_mop_onclick;
-            menu_entry.Image = resources.cam_trochopock1;
-
-            insert_in_top_menu(ui, menu_entry);
-
-            menu_entry = new ToolStripMenuItem();
-            menu_entry.Text = "Trochoidal Profile";
-            menu_entry.Click += profile_mop_onclick;
-            menu_entry.Image = resources.cam_trochopock1;
-
-            insert_in_context_menu(ui, menu_entry);
-
-
 
             // defer attachment to toolbar until the first show.
             // Custom CAM Toolbar plugin (if installed) may already attached us after Load event, so we react on later Shown event

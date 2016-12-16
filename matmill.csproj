@@ -108,6 +108,12 @@
   <ItemGroup>
     <None Include="Resources\cam_trochopock0.bmp" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\cam_trochoprof0.bmp" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\cam_trochoprof1.bmp" />
+  </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

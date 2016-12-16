@@ -34,25 +34,25 @@ namespace Trochopock
         [XmlIgnore, Browsable(false)]
         public Image ActiveIconImage
         {
-            get { return resources.cam_trochopock1;}
+            get { return resources.cam_trochoprof1;}
         }
 
         [XmlIgnore, Browsable(false)]
         public string ActiveIconKey
         {
-            get { return "cam_trochopock1"; }
+            get { return "cam_trochoprof1"; }
         }
 
         [XmlIgnore, Browsable(false)]
         public Image InactiveIconImage
         {
-            get { return resources.cam_trochopock0;}
+            get { return resources.cam_trochoprof0;}
         }
 
         [XmlIgnore, Browsable(false)]
         public string InactiveIconKey
         {
-            get { return "cam_trochopock0"; }
+            get { return "cam_trochoprof0"; }
         }
 
         //--- visible parameters which may be styled
