@@ -10,6 +10,7 @@ using CamBam.CAD;
 using CamBam.CAM;
 using CamBam.Geom;
 using CamBam.UI;
+using CamBam.Values;
 
 using Matmill;
 
@@ -18,6 +19,10 @@ namespace Trochopock
     [Serializable]
     public class MOPTrochoprof : Sliced_mop, IIcon
     {
+        protected CBValue<InsideOutsideOptions> _cut_side;
+        protected CBValue<double> _cut_width;
+        protected CBValue<bool> _should_overcut_corners;
+
         //--- invisible and non-serializable properties
 
         [XmlIgnore, Browsable(false)]
@@ -50,20 +55,56 @@ namespace Trochopock
             get { return "cam_trochopock0"; }
         }
 
-        private Sliced_path gen_profile(Polyline poly)
+        //--- visible parameters which may be styled
+
+		[
+            CBKeyValue,
+            Category("(General)"),
+            DefaultValue(typeof(CBValue<InsideOutsideOptions>), "Default"),
+            Description("Whether to cut Inside or Outside the selected shapes.\r\nFor open shapes the point order determines which side of the line to cut."),
+            DisplayName("Inside / Outside")
+        ]
+		public CBValue<InsideOutsideOptions> InsideOutside
+		{
+			get { return this._cut_side;  }
+			set { this._cut_side = value; }
+		}
+
+        [
+            Category("Step Over"),
+            DefaultValue(typeof(CBValue<double>), "Default"),
+            Description("The total width of the sliced cut.\r\n"+
+                        "If 0 the width of the cut is 2 * tool diameter"),
+            DisplayName("Cut Width")
+        ]
+        public CBValue<double> CutWidth
+        {
+        	get { return this._cut_width; }
+        	set { this._cut_width = value; }
+        }
+
+        [
+            Category("Options"),
+            DefaultValue(typeof(CBValue<bool>), "Default"),
+            Description("Add a move to cut corners otherwise too narrow for cutter."),
+            DisplayName("Corner Overcut")
+        ]
+        public CBValue<bool> CornerOvercut
+        {
+        	get { return this._should_overcut_corners;}
+        	set { this._should_overcut_corners = value;}
+        }
+
+        private Sliced_path gen_toolpath(Polyline poly, double width, Point2F startpoint)
         {
             Engrave_generator gen = new Engrave_generator(poly);
 
             gen.General_tolerance = is_inch_units() ? 0.001 / 25.4 : 0.001;
             gen.Tool_d = base.ToolDiameter.Cached;
             gen.Max_ted = base.ToolDiameter.Cached * _stepover.Cached;
-            //gen.Min_ted = base.ToolDiameter.Cached * _stepover.Cached * _min_stepover_percentage;
+            gen.Startpoint = startpoint;
 
-            //gen.Startpoint = (Point2F)base.StartPoint.Cached;
-            //gen.Margin = base.RoughingClearance.Cached;
-
-            // XXX: for now
-            gen.Slice_radius = base.ToolDiameter.Cached / 2;
+            gen.Slice_radius = (width - base.ToolDiameter.Cached) / 2;
 
             if (_milling_direction.Cached == MillingDirectionOptions.Mixed || base.SpindleDirection.Cached == SpindleDirectionOptions.Off)
             {
@@ -82,6 +123,62 @@ namespace Trochopock
             return gen.run();
         }
 
+        private static Point2F lastpt(List<Sliced_path> trajectories)
+        {
+            if (trajectories.Count == 0)
+                return Point2F.Undefined;
+            Sliced_path last = trajectories[trajectories.Count - 1];
+            if (last.Count == 0)
+                return Point2F.Undefined;
+            return (Point2F)last[last.Count - 1].LastPoint;
+        }
+
+        private List<Sliced_path> gen_profile(Polyline poly, bool is_inside, Point2F startpoint)
+        {
+            List<Sliced_path> trajectories = new List<Sliced_path>();
+
+            double cut_width = _cut_width.Cached;
+            if (cut_width == 0)
+                cut_width = base.ToolDiameter.Cached * 2;
+
+            double offset = cut_width / 2 + base.RoughingClearance.Cached;
+            if (is_inside)
+                offset = -offset;
+
+            Polyline[] array = poly.CreateOffsetPolyline(offset, (double)CamBamConfig.Defaults.GeneralTolerance, _should_overcut_corners.Cached, false);
+
+            if (array == null)
+                return trajectories;
+
+            foreach (Polyline p in array)
+            {
+                if (trajectories.Count != 0)
+                    startpoint = lastpt(trajectories);
+
+                Sliced_path toolpath = gen_toolpath(p, cut_width, startpoint);
+                if (toolpath != null)                
+                    trajectories.Add(toolpath);
+            }
+
+            return trajectories;
+        }
+
+        private List<Sliced_path> gen_profile(CamBam.CAD.Region region, bool is_inside, Point2F startpoint)
+        {
+            List<Sliced_path> trajectories = new List<Sliced_path>();
+
+            trajectories.AddRange(gen_profile(region.OuterCurve, is_inside, startpoint));
+
+            foreach (Polyline hole in region.HoleCurves)
+            {
+                if (trajectories.Count != 0)
+                    startpoint = lastpt(trajectories);
+                trajectories.AddRange(gen_profile(hole, !is_inside, startpoint));
+            }                
+
+            return trajectories;
+        }
+
         protected override void _GenerateToolpathsWorker()
         {
             try
@@ -91,6 +188,13 @@ namespace Trochopock
                 if (base.ToolDiameter.Cached == 0)
                 {
                     Host.err("tool diameter is zero");
+                    base.MachineOpStatus = MachineOpStatus.Errors;
+                    return;
+                }
+
+                if (_cut_width.Cached != 0 && _cut_width.Cached < base.ToolDiameter.Cached * 1.05)
+                {
+                    Host.err("cut width is too small");
                     base.MachineOpStatus = MachineOpStatus.Errors;
                     return;
                 }
@@ -110,38 +214,21 @@ namespace Trochopock
                 shapes.AddEntities(base._CADFile, base.PrimitiveIds);
                 shapes = shapes.DetectRegions();
 
-                List<Polyline> polys = new List<Polyline>();
+                List<Sliced_path> trajectories = new List<Sliced_path>();
+
+                bool is_inside = _cut_side.Cached == InsideOutsideOptions.Inside;
+
+                Point2F startpoint = (Point2F)base.StartPoint.Cached;
 
                 foreach (ShapeListItem shape in shapes)
                 {
+                    if (trajectories.Count != 0)                    
+                        startpoint = lastpt(trajectories);                    
+
                     if (shape.Shape is Polyline)
-                    {
-                        polys.Add((Polyline)shape.Shape);
-                    }
-                }
-
-//              bool found_opened_polylines = false;
-//              for (int i = shapes.Count - 1; i >= 0; i--)
-//              {
-//                  if (shapes[i].Shape is Polyline && ! ((Polyline)shapes[i].Shape).Closed)
-//                  {
-//                      found_opened_polylines = true;
-//                      shapes.RemoveAt(i);
-//                  }
-//              }
-//              if (found_opened_polylines)
-//              {
-//                  Host.warn("ignoring open polylines");
-//                  base.MachineOpStatus = MachineOpStatus.Warnings;
-//              }
-
-                List<Sliced_path> trajectories = new List<Sliced_path>();
-
-                foreach (Polyline p in polys)
-                {
-                    Sliced_path traj = gen_profile(p);
-                    if (traj != null)
-                        trajectories.Add(traj);
+                        trajectories.AddRange(gen_profile((Polyline)shape.Shape, is_inside, startpoint));
+                    else if (shape.Shape is CamBam.CAD.Region)
+                        trajectories.AddRange(gen_profile((CamBam.CAD.Region)shape.Shape, is_inside, startpoint));
                 }
 
                 if (trajectories.Count == 0)
@@ -172,6 +259,9 @@ namespace Trochopock
 
         public MOPTrochoprof(MOPTrochoprof src) : base(src)
         {
+            this.InsideOutside = src.InsideOutside;
+            this.CutWidth = src.CutWidth;
+            this.CornerOvercut = src.CornerOvercut;
         }
 
         public MOPTrochoprof()

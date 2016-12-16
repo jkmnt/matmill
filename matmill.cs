@@ -115,7 +115,7 @@ namespace Matmill
         private const double FINAL_ALLOWED_TED_OVERSHOOT_PERCENTAGE = 0.03;  // 3 %
 
         private Polyline _poly;
-        private readonly Topographer _topo;
+        private Topographer _topo;
 
         private double _general_tolerance = 0.001;
         private double _tool_r = 1.5;
@@ -133,16 +133,16 @@ namespace Matmill
         public double Slice_radius                                { set { _slice_radius = value; } }
         public double Slice_leadin_angle                          { set { _slice_leadin_angle = value; } }
         public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }
-        //public Point2F Startpoint                                 { set { _startpoint = value; } }
+        public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
         public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}
 
         private int find_optimal_slice(Slice parent, Point2F pt, ref Slice _candidate)
-        {            
+        {
             Slice s = new Slice(parent, pt, _slice_radius, RotationDirection.CCW, _tool_r, Point2F.Undefined);
 
             if (s.Placement == Slice_placement.INSIDE_ANOTHER) return 1;    // go right
-            if (s.Placement == Slice_placement.TOO_FAR) return -1;          // go left            
+            if (s.Placement == Slice_placement.TOO_FAR) return -1;          // go left
 
             _candidate = s;
 
@@ -152,9 +152,9 @@ namespace Matmill
             return 0;                                                                       // good slice inside the tolerance, stop search
         }
 
-        // NOTE: funny way to calc it. try a lot of slices on a test line, approaching the best placement with the correct TED
+        // NOTE: funny way to calc it: try a lot of slices on a test line, approaching the best placement with the correct TED
         private double calc_optimal_step()
-        {            
+        {
             Branch branch = new Branch(null);
             branch.Add_point(new Point2F(0, 0));
             branch.Add_point(new Point2F(0, _tool_r * 2));
@@ -166,6 +166,44 @@ namespace Matmill
             branch.Bisect(pt => find_optimal_slice(slice_a, pt, ref slice_b), ref t, _general_tolerance);
 
             return slice_a.Center.DistanceTo(slice_b.Center);
+        }
+
+        private static Polyline adjust_startpoint(Polyline poly, Point2F startpoint)
+        {
+            if (startpoint.IsUndefined)
+                return poly;
+
+            if (poly.Closed)
+            {
+                int seg = 0;
+                double min_dist = double.MaxValue;
+
+                for (int i = 0; i < poly.Points.Count; i++)
+                {
+                    Point2F pt = (Point2F)poly.Points[i].Point;
+                    double dist = pt.DistanceTo(startpoint);
+                    if (dist <= min_dist)
+                    {
+                        min_dist = dist;
+                        seg = i;
+                    }
+                }
+                if (seg != 0)
+                    poly = poly.ToNewStartPoint(seg);
+            }
+            else
+            {
+                Point2F start = (Point2F)poly.FirstPoint;
+                Point2F end = (Point2F)poly.LastPoint;
+
+                if (startpoint.DistanceTo(end) < startpoint.DistanceTo(start))
+                {
+                    poly = new Polyline(poly);
+                    poly.Reverse();
+                }
+            }
+
+            return poly;
         }
 
         private Sliced_path generate_path(Slice_sequence sequence)
@@ -196,8 +234,10 @@ namespace Matmill
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
 
-            double step = calc_optimal_step();
+            _poly = adjust_startpoint(_poly, _startpoint);
+            _topo = new Topographer(_poly, new Polyline[] { });
 
+            double step = calc_optimal_step();
             List<Point2F> slice_centers = _topo.Get_samples_exact(step);
 
             Bypoint_slicer slicer = new Bypoint_slicer(_topo.Min, _topo.Max, _general_tolerance);
@@ -208,12 +248,11 @@ namespace Matmill
             Slice_sequence sequence = slicer.Run(slice_centers, _tool_r, _slice_radius, _dir);
 
             Logger.log("generating path");
-            return generate_path(sequence);            
+            return generate_path(sequence);
         }
 
         public Engrave_generator(Polyline poly)
         {
-            _topo = new Topographer(poly, new Polyline[] {});
             _poly = poly;
         }
     }
