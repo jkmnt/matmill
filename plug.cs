@@ -7,6 +7,7 @@ using System.IO;
 using CamBam;
 using CamBam.UI;
 using CamBam.CAD;
+using CamBam.Util;
 
 namespace Matmill
 {
@@ -133,14 +134,14 @@ namespace Trochomops
             ToolStripButton button;
 
             button = new ToolStripButton();
-            button.ToolTipText = profile_mop_name;
+            button.ToolTipText = TextTranslation.Translate(profile_mop_name);
             button.Click += profile_mop_onclick;
             button.Image = resources.cam_trochoprof1;
 
             insert_in_toolbar(button);
 
             button = new ToolStripButton();
-            button.ToolTipText = pocket_mop_name;
+            button.ToolTipText = TextTranslation.Translate(pocket_mop_name);
             button.Click += pocket_mop_onclick;
             button.Image = resources.cam_trochopock1;
 
