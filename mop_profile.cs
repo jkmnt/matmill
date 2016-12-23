@@ -145,7 +145,17 @@ namespace Trochomops
             if (is_inside)
                 offset = -offset;
 
-            Polyline[] array = poly.CreateOffsetPolyline(offset, (double)CamBamConfig.Defaults.GeneralTolerance, _should_overcut_corners.Cached, false);
+            Polyline[] array;
+
+            // special case - simulation of engrave. do not offset poly at all to allow exact follow of path
+            if (Math.Abs(offset) < (double)CamBamConfig.Defaults.GeneralTolerance)
+            {
+                array = new Polyline[] { poly };
+            }
+            else
+            {
+                array = poly.CreateOffsetPolyline(offset, (double)CamBamConfig.Defaults.GeneralTolerance, _should_overcut_corners.Cached, false);
+            }
 
             if (array == null)
                 return trajectories;
