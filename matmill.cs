@@ -6,7 +6,7 @@ using CamBam.CAD;
 using CamBam.Geom;
 
 namespace Matmill
-{    
+{
     public class Pocket_generator
     {
         private readonly Topographer _topo;
@@ -161,28 +161,25 @@ namespace Matmill
             return slice_a.Center.DistanceTo(slice_b.Center);
         }
 
-        private static Polyline adjust_startpoint(Polyline poly, Point2F startpoint)
+        private static Polyline adjust_startpoint(Polyline poly, Point2F startpoint, double snap_tolerance)
         {
             if (startpoint.IsUndefined)
                 return poly;
 
             if (poly.Closed)
             {
-                int seg = 0;
-                double min_dist = double.MaxValue;
+                Vector2F normal = Vector2F.Undefined;
+                int nearest_seg = 0;
+                Point3F nearest_pt = poly.GetNearestPoint(startpoint, ref normal, ref nearest_seg, true);
 
-                for (int i = 0; i < poly.Points.Count; i++)
+                if (nearest_seg >= 0)
                 {
-                    Point2F pt = (Point2F)poly.Points[i].Point;
-                    double dist = pt.DistanceTo(startpoint);
-                    if (dist <= min_dist)
-                    {
-                        min_dist = dist;
-                        seg = i;
-                    }
+                    poly = (Polyline)poly.Clone();
+
+                    int seg = poly.InsertPoint((Point2F)nearest_pt, snap_tolerance);
+                    if (seg >= 0)
+                        poly = poly.ToNewStartPoint(seg);
                 }
-                if (seg != 0)
-                    poly = poly.ToNewStartPoint(seg);
             }
             else
             {
@@ -220,7 +217,7 @@ namespace Matmill
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
 
-            _poly = adjust_startpoint(_poly, _startpoint);
+            _poly = adjust_startpoint(_poly, _startpoint, _general_tolerance * 100);
             _topo = new Topographer(_poly, new Polyline[] { });
 
             double step = calc_optimal_step();
