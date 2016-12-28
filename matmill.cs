@@ -54,8 +54,7 @@ namespace Matmill
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
             gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_slice_sequence(sequence);
-            gen.Append_return_to_base(sequence.Trace_return_to_root());
+            gen.Append_slice_sequence(sequence);            
 
             return gen.Path;
         }
@@ -206,8 +205,7 @@ namespace Matmill
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
             gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_slice_sequence(sequence);
-            gen.Append_return_to_base(sequence.Trace_return_to_root());
+            gen.Append_slice_sequence(sequence);            
 
             return gen.Path;
         }

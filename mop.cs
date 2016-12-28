@@ -23,14 +23,12 @@ namespace Trochomops
         public readonly Sliced_path Trajectory;
         public readonly double Top;
         public readonly double Bottom;
-        public readonly bool Should_return_to_base;
         public Polyline Leadin;
-        public Toolpath(Sliced_path path, double bottom, double top, bool return_to_base)
+        public Toolpath(Sliced_path path, double bottom, double top)
         {
             this.Trajectory = path;
             this.Bottom = bottom;
             this.Top = top;
-            this.Should_return_to_base = return_to_base;
         }
     }
 
@@ -61,7 +59,6 @@ namespace Trochomops
         protected double _chord_feedrate = 0;
         protected double _spiral_feedrate = 0;
 
-        protected bool _may_return_to_base = true;
         protected bool _should_smooth_chords = false;
         protected bool _should_draw_chords = false;
 
@@ -166,18 +163,6 @@ namespace Trochomops
         [
             CBAdvancedValue,
             Category("Options"),
-            Description("Try to return to the start point without rapids (if required)"),
-            DisplayName("Return To Base")
-        ]
-        public bool May_return_to_base
-        {
-            get { return _may_return_to_base; }
-            set { _may_return_to_base = value; }
-        }
-
-        [
-            CBAdvancedValue,
-            Category("Options"),
             Description("Replace straight chords with the smooth arcs to form a continous toolpath. " +
                         "This may be useful on a machines with the slow acceleration.\n" +
                         "Not applied to the the mixed milling direction."),
@@ -239,16 +224,11 @@ namespace Trochomops
                 foreach (Sliced_path traj in trajectories)
                 {
                     double surface = base.StockSurface.Cached;
-
-                    // last depth level of each pocket should have no return to base, it's useless
-                    // intermediate levels may have returns if not disabled by setting
-                    int i;
-                    for (i = 0; i < bottoms.Length - 1; i++)
+                    foreach (double bot in bottoms)
                     {
-                        toolpaths.Add(new Toolpath(traj, bottoms[i], surface, _may_return_to_base));
-                        surface = bottoms[i];
+                        toolpaths.Add(new Toolpath(traj, bot, surface));
+                        surface = bot;
                     }
-                    toolpaths.Add(new Toolpath(traj, bottoms[i], surface, false));
                 }
             }
             else
@@ -258,7 +238,7 @@ namespace Trochomops
                 foreach (double bot in bottoms)
                 {
                     foreach (Sliced_path traj in trajectories)
-                        toolpaths.Add(new Toolpath(traj, bot, surface, false));
+                        toolpaths.Add(new Toolpath(traj, bot, surface));
                     surface = bot;
                 }
             }
@@ -266,14 +246,14 @@ namespace Trochomops
             // now insert leadins
             if (_leadin.Cached != null && _leadin.Cached.LeadInType != LeadInTypeOptions.None)
             {
-                for (int i = 0; i < toolpaths.Count; i++)
-                    toolpaths[i].Leadin = gen_leadin(toolpaths[i], i > 0 ? toolpaths[i - 1] : null);
+                foreach (Toolpath tp in toolpaths)
+                    tp.Leadin = gen_leadin(tp);
             }
 
             return toolpaths;
         }
 
-        private Polyline gen_leadin(Toolpath path, Toolpath prev_path)
+        private Polyline gen_leadin(Toolpath path)
         {
             Sliced_path_item spiral = path.Trajectory[0];
 
@@ -290,9 +270,6 @@ namespace Trochomops
                                        _depth_increment.Cached,
                                        path.Bottom,
                                        move.ValidSpiralAngle, path.Top - path.Bottom);
-
-            if (prev_path != null && prev_path.Should_return_to_base)
-                p.InsertSegmentBefore(0, new PolylineItem(spiral.FirstPoint.X, spiral.FirstPoint.Y, p.FirstPoint.Z, 0));
 
             return p;
         }
@@ -350,7 +327,7 @@ namespace Trochomops
                     if (path.Leadin != null)
                         to = path.Leadin.FirstPoint;
                     else
-                        to = new Point3F(path.Trajectory[0].FirstPoint.X, path.Trajectory[0].FirstPoint.Y, path.Bottom);
+                        to = (Point3F)path.Trajectory[0].FirstPoint;
 
                     double dist = Point2F.Distance((Point2F)lastpt, (Point2F)to);
 
@@ -361,13 +338,12 @@ namespace Trochomops
                         p.Add(lastpt);
                         p.Add(new Point3F(lastpt.X, lastpt.Y, ClearancePlane.Cached));
                         p.Add(new Point3F(to.X, to.Y, ClearancePlane.Cached));
-                        p.Add(to);
+                        p.Add(new Point3F(to.X, to.Y, path.Bottom + to.Z));
                         rapids.Add(p);
                     }
                 }
 
-                // NOTE: we're discarding last path item if return to base should be disabled for this segment
-                lastpt = path.Trajectory[path.Trajectory.Count - (path.Should_return_to_base ? 1 : 2)].LastPoint;
+                lastpt = path.Trajectory[path.Trajectory.Count - 1].LastPoint;
                 lastpt = new Point3F(lastpt.X, lastpt.Y, path.Bottom);
             }
 
@@ -406,12 +382,6 @@ namespace Trochomops
                     case Sliced_path_item_type.SMOOTH_CHORD:
                     case Sliced_path_item_type.GUIDE:
                     case Sliced_path_item_type.SLICE_SHORTCUT:
-                        moves_len += len;
-                        break;
-
-                    case Sliced_path_item_type.RETURN_TO_BASE:
-                        if (! path.Should_return_to_base)
-                            continue;
                         moves_len += len;
                         break;
                     }
@@ -519,12 +489,6 @@ namespace Trochomops
                     base.CutFeedrate = chord_feedrate;
                     break;
 
-                case Sliced_path_item_type.RETURN_TO_BASE:
-                    if (! path.Should_return_to_base)
-                        continue;
-                    base.CutFeedrate = chord_feedrate;
-                    break;
-
                 default:
                     throw new Exception("unknown item type in sliced trajectory");
                 }
@@ -599,9 +563,6 @@ namespace Trochomops
             {
                 Color acol = arccolor;
                 Color lcol = linecolor;
-
-                if (p.Item_type == Sliced_path_item_type.RETURN_TO_BASE && (! path.Should_return_to_base))
-                    continue;
 
                 if (p.Item_type == Sliced_path_item_type.CHORD || p.Item_type == Sliced_path_item_type.SMOOTH_CHORD || p.Item_type == Sliced_path_item_type.SLICE_SHORTCUT)
                 {
@@ -711,7 +672,6 @@ namespace Trochomops
 
             Chord_feedrate = src.Chord_feedrate;
             Spiral_feedrate = src.Spiral_feedrate;
-            May_return_to_base = src.May_return_to_base;
             Should_smooth_chords = src.Should_smooth_chords;
             Should_draw_chords = src.Should_draw_chords;
         }
