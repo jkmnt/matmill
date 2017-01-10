@@ -271,11 +271,11 @@ namespace Trochomops
             {
                 Traj_metainfo meta = (Traj_metainfo) path.Trajectory.Extension;
                 start_normal = meta.Start_normal;
-            }            
+            }
 
             LeadMoveInfo move = _leadin.Cached;
             Polyline p = move.GetLeadInToolPath(spiral,
-                                       spiral.Direction,                                       
+                                       spiral.Direction,
                                        start_normal,
                                        base.PlungeFeedrate.Cached,
                                        base.CutFeedrate.Cached,
@@ -292,31 +292,38 @@ namespace Trochomops
             CamBamUI.MainUI.ObjectProperties.Refresh();
         }
 
-        // rapids are not shown
-        private List<Surface> calc_visual_cut_widths(List<Sliced_path> trajectories, double bottom)
+        private Surface polyline_to_surface(Polyline p, double z)
+        {
+            if (base.Transform.Cached != null && !Transform.Cached.IsIdentity())
+            {
+                p = (Polyline)p.Clone();
+                p.ApplyTransformation(Transform.Cached);
+            }
+
+            PolylineToMesh mesh = new PolylineToMesh(p);
+            Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
+            surface.ApplyTransformation(Matrix4x4F.Translation(0.0, 0.0, z - 0.001));
+            return surface;
+        }
+
+        private List<Surface> calc_visual_cut_widths(List<Toolpath> toolpaths, double first_bottom, double last_bottom)
         {
             List<Surface> surfaces = new List<Surface>();
 
-            foreach (Sliced_path traj in trajectories)
-            {
-                foreach(Sliced_path_item item in traj)
+            foreach (Toolpath path in toolpaths)
+            {   
+                // show lead-ins for the first depth level
+                if (path.Bottom == first_bottom && path.Leadin != null)                
+                    surfaces.Add(polyline_to_surface(path.Leadin, path.Bottom));
+
+                // show cut traces for the last depth level
+                if (path.Bottom == last_bottom)
                 {
-                    Polyline p = item;
-
-                    if (item.Item_type != Sliced_path_item_type.SLICE && item.Item_type != Sliced_path_item_type.SPIRAL)
-                        continue;
-
-                    // TODO: maybe a single transform of surface will suffice ?
-                    if (base.Transform.Cached != null && ! Transform.Cached.IsIdentity())
-                    {
-                        p = (Polyline) p.Clone();
-                        p.ApplyTransformation(Transform.Cached);
+                    foreach (Sliced_path_item item in path.Trajectory)
+                    {                        
+                        if (item.Item_type == Sliced_path_item_type.SLICE || item.Item_type == Sliced_path_item_type.SPIRAL)
+                            surfaces.Add(polyline_to_surface(item, path.Bottom));
                     }
-
-                    PolylineToMesh mesh = new PolylineToMesh(p);
-                    Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
-                    surface.ApplyTransformation(Matrix4x4F.Translation(0.0, 0.0, bottom - 0.001));
-                    surfaces.Add(surface);
                 }
             }
 
@@ -459,7 +466,7 @@ namespace Trochomops
             _trajectories = trajectories;
             double[] bottoms = get_z_layers();
             _toolpaths = gen_ordered_toolpath(_trajectories, bottoms);
-            _visual_cut_widths = calc_visual_cut_widths(_trajectories, bottoms[bottoms.Length - 1]);  // for the last depth only
+            _visual_cut_widths = calc_visual_cut_widths(_toolpaths, bottoms[0], bottoms[bottoms.Length - 1]);
             _visual_rapids = calc_visual_rapids(_toolpaths);
 
             print_toolpath_stats(_toolpaths, _visual_rapids);
