@@ -95,14 +95,13 @@ namespace Trochomops
         	set { this._should_overcut_corners = value;}
         }
 
-        private Sliced_path gen_toolpath(Polyline poly, double width, Point2F startpoint)
+        private Sliced_path gen_toolpath(Polyline poly, double width)
         {
             Engrave_generator gen = new Engrave_generator(poly);
 
             gen.General_tolerance = is_inch_units() ? 0.001 / 25.4 : 0.001;
             gen.Tool_d = base.ToolDiameter.Cached;
             gen.Max_ted = base.ToolDiameter.Cached * _stepover.Cached;
-            gen.Startpoint = startpoint;
 
             gen.Slice_radius = (width - base.ToolDiameter.Cached) / 2;
 
@@ -133,8 +132,51 @@ namespace Trochomops
             return (Point2F)last[last.Count - 1].LastPoint;
         }
 
-        private List<Sliced_path> gen_profile(Polyline poly, bool is_inside, Point2F startpoint)
+        private static Polyline adjust_closed_startpoint(Polyline poly, Point2F startpoint)
         {
+            Vector2F normal = Vector2F.Undefined;
+            int nearest_seg = 0;
+            Point3F nearest_pt = poly.GetNearestPoint(startpoint, ref normal, ref nearest_seg, true);
+
+            if (nearest_seg >= 0)
+            {
+                int seg = poly.InsertPoint((Point2F)nearest_pt, (double)CamBamConfig.Defaults.GeneralTolerance);
+                if (seg >= 0)
+                    poly = poly.ToNewStartPoint(seg);
+            }
+
+            return poly;
+        }
+
+        private bool should_flip_opened_startpoint(Polyline poly, Point2F startpoint)
+        {
+            Point2F start = (Point2F)poly.FirstPoint;
+            Point2F end = (Point2F)poly.LastPoint;
+
+            return startpoint.DistanceTo(end) < startpoint.DistanceTo(start);
+        }
+
+        private List<Sliced_path> gen_profile(Polyline poly, bool is_inside, Point2F startpoint)
+        {                        
+            if (! startpoint.IsUndefined)
+            {
+                poly = new Polyline(poly);
+
+                if (poly.Closed)
+                {
+                    poly = adjust_closed_startpoint(poly, startpoint);
+                }
+                else
+                {
+                    if (should_flip_opened_startpoint(poly, startpoint))
+                    {
+                        poly.Reverse();
+                        is_inside = ! is_inside;    // preserve side if flipped !
+                    }
+                }
+            }
+
+
             List<Sliced_path> trajectories = new List<Sliced_path>();
 
             double cut_width = _cut_width.Cached;
@@ -165,9 +207,14 @@ namespace Trochomops
                 if (trajectories.Count != 0)
                     startpoint = lastpt(trajectories);
 
-                Sliced_path toolpath = gen_toolpath(p, cut_width, startpoint);
+                Sliced_path toolpath = gen_toolpath(p, cut_width);
                 if (toolpath != null)
+                {
+                    Traj_metainfo meta = new Traj_metainfo();
+                    meta.Start_normal = new Vector2F((Point2F)toolpath[0].FirstPoint, (Point2F)poly.FirstPoint);
+                    toolpath.Extension = meta;
                     trajectories.Add(toolpath);
+                }
             }
 
             return trajectories;

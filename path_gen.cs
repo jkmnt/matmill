@@ -20,7 +20,10 @@ namespace Matmill
         DEBUG_MEDIAL_AXIS,
     }
 
-    public class Sliced_path : List<Sliced_path_item> { }
+    public class Sliced_path : List<Sliced_path_item>
+    {
+        public object Extension;        
+    }
 
     public class Sliced_path_item: Polyline
     {

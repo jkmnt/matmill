@@ -32,6 +32,11 @@ namespace Trochomops
         }
     }
 
+    class Traj_metainfo
+    {
+        public Vector2F Start_normal;
+    }
+
     [Serializable]
     public class Trochomop : MOPFromGeometry
     {
@@ -260,10 +265,18 @@ namespace Trochomops
             if (spiral.Item_type != Sliced_path_item_type.SPIRAL)
                 throw new Exception("no spiral in sliced path");
 
+            Vector2F start_normal = Vector2F.Undefined;
+
+            if (path.Trajectory.Extension != null && path.Trajectory.Extension is Traj_metainfo)
+            {
+                Traj_metainfo meta = (Traj_metainfo) path.Trajectory.Extension;
+                start_normal = meta.Start_normal;
+            }            
+
             LeadMoveInfo move = _leadin.Cached;
             Polyline p = move.GetLeadInToolPath(spiral,
-                                       spiral.Direction,
-                                       Vector2F.Undefined,              // don't know that this for. leave undefined
+                                       spiral.Direction,                                       
+                                       start_normal,
                                        base.PlungeFeedrate.Cached,
                                        base.CutFeedrate.Cached,
                                        base.StockSurface.Cached,
@@ -279,6 +292,7 @@ namespace Trochomops
             CamBamUI.MainUI.ObjectProperties.Refresh();
         }
 
+        // rapids are not shown
         private List<Surface> calc_visual_cut_widths(List<Sliced_path> trajectories, double bottom)
         {
             List<Surface> surfaces = new List<Surface>();

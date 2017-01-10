@@ -126,7 +126,6 @@ namespace Matmill
         public double Slice_radius                                { set { _slice_radius = value; } }
         public double Slice_leadin_angle                          { set { _slice_leadin_angle = value; } }
         public double Slice_leadout_angle                         { set { _slice_leadout_angle = value; } }
-        public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
         public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}
 
@@ -159,41 +158,6 @@ namespace Matmill
             branch.Bisect(pt => find_optimal_slice(slice_a, pt, ref slice_b), ref t, _general_tolerance);
 
             return slice_a.Center.DistanceTo(slice_b.Center);
-        }
-
-        private static Polyline adjust_startpoint(Polyline poly, Point2F startpoint, double snap_tolerance)
-        {
-            if (startpoint.IsUndefined)
-                return poly;
-
-            if (poly.Closed)
-            {
-                Vector2F normal = Vector2F.Undefined;
-                int nearest_seg = 0;
-                Point3F nearest_pt = poly.GetNearestPoint(startpoint, ref normal, ref nearest_seg, true);
-
-                if (nearest_seg >= 0)
-                {
-                    poly = (Polyline)poly.Clone();
-
-                    int seg = poly.InsertPoint((Point2F)nearest_pt, snap_tolerance);
-                    if (seg >= 0)
-                        poly = poly.ToNewStartPoint(seg);
-                }
-            }
-            else
-            {
-                Point2F start = (Point2F)poly.FirstPoint;
-                Point2F end = (Point2F)poly.LastPoint;
-
-                if (startpoint.DistanceTo(end) < startpoint.DistanceTo(start))
-                {
-                    poly = new Polyline(poly);
-                    poly.Reverse();
-                }
-            }
-
-            return poly;
         }
 
         private Sliced_path generate_path(Slice_sequence sequence)
@@ -231,8 +195,7 @@ namespace Matmill
         {
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
-
-            _poly = adjust_startpoint(_poly, _startpoint, _general_tolerance * 100);
+            
             _topo = new Topographer(_poly, new Polyline[] { });
 
             double step = calc_optimal_step();
