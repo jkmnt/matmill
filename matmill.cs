@@ -1,9 +1,10 @@
 ﻿using System;
-
 using System.Collections.Generic;
 
 using CamBam.CAD;
 using CamBam.Geom;
+
+using Geom;
 
 namespace Matmill
 {
@@ -53,8 +54,8 @@ namespace Matmill
             else
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
-            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_slice_sequence(sequence);            
+            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, new Vector2d(), _max_ted, _tool_r, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+            gen.Append_slice_sequence(sequence);
 
             return gen.Path;
         }
@@ -204,8 +205,24 @@ namespace Matmill
             else
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
-            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _max_ted, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
-            gen.Append_slice_sequence(sequence);            
+            // NOTE: this manipulations are to make the beginning of spiral tangent to the polyline
+            object obj = _poly.GetSegment(0);
+            Vector2d tangent = new Vector2d();
+            if (obj is Line2F)
+            {
+                Line2F line = (Line2F)obj;
+                tangent = new Vector2d(line.p1, line.p2);
+            }
+            else if (obj is Arc2F)
+            {
+                Arc2F arc = (Arc2F)obj;
+                tangent = new Vector2d(arc.Center, arc.P1).Normal();
+                if (arc.Direction == RotationDirection.CW)
+                    tangent = tangent.Inverted();
+            }
+
+            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, tangent, _max_ted, _tool_r, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+            gen.Append_slice_sequence(sequence);
 
             return gen.Path;
         }

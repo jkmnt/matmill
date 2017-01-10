@@ -103,11 +103,15 @@ namespace Matmill
             return path;
         }
 
-        public void Append_spiral(Point2F start, Point2F end, double spacing, RotationDirection dir)
+        public void Append_spiral(Point2F start, Point2F end, Vector2d start_tangent, double ted, double tool_r, RotationDirection dir)
         {
             Sliced_path_item spiral = new Sliced_path_item(Sliced_path_item_type.SPIRAL);
-            foreach (Biarc2d biarc in Spiral_generator.Gen_archimedean_spiral(start, end, spacing, dir))
+
+            double spacing = Spiral_generator.Calc_reverse_spacing(end.DistanceTo(start), tool_r, ted, _general_tolerance);
+
+            foreach (Biarc2d biarc in Spiral_generator.Gen_archimedean_spiral(start, end, start_tangent, spacing, dir))
                 spiral.Add(biarc, _general_tolerance);
+
             Path.Add(spiral);
         }
 
