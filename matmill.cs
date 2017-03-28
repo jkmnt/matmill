@@ -20,9 +20,11 @@ namespace Matmill
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
         private bool _should_smooth_chords = false;
+        private bool _startpoint_is_a_hint = false;
         //private bool _should_emit_debug_medial_axis = false;
         private double _slice_leadin_angle = 3 * Math.PI / 180;
         private double _slice_leadout_angle = 0.5 * Math.PI / 180;
+        private Vector2d _spiral_tangent = new Vector2d();
 
         public double Tool_d                                      { set { _tool_r = value / 2.0;}}
         public double General_tolerance                           { set { _general_tolerance = value; } }
@@ -34,6 +36,8 @@ namespace Matmill
         public Point2F Startpoint                                 { set { _startpoint = value; } }
         public RotationDirection Mill_direction                   { set { _dir = value; } }
         public bool Should_smooth_chords                          { set { _should_smooth_chords = value; }}
+        public bool Startpoint_is_a_hint                          { set { _startpoint_is_a_hint = value; }}
+        public Vector2F Spiral_tangent                            { set { _spiral_tangent = new Vector2d(value.X, value.Y); }}
 
         private double _min_passable_mic_radius
         {
@@ -54,7 +58,7 @@ namespace Matmill
             else
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
-            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, new Vector2d(), _max_ted, _tool_r, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _spiral_tangent, _max_ted, _tool_r, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
             gen.Append_slice_sequence(sequence);
 
             return gen.Path;
@@ -75,7 +79,7 @@ namespace Matmill
             Logger.log("building medial axis");
 
             Branch tree = new Branch(null);
-            bool is_ok = _topo.Build_medial_tree(tree, _tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin);
+            bool is_ok = _topo.Build_medial_tree(tree, _tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin, _startpoint_is_a_hint);
 
             if (! is_ok)
             {
@@ -119,6 +123,8 @@ namespace Matmill
         private double _slice_leadin_angle = 3 * Math.PI / 180;
         private double _slice_leadout_angle = 0.5 * Math.PI / 180;
         private double _slice_radius = 1.5;
+        private Vector2d _spiral_tangent = new Vector2d();
+        public Vector2F Spiral_tangent { set { _spiral_tangent = new Vector2d(value.X, value.Y); } }
 
         public double Tool_d                                      { set { _tool_r = value / 2.0;}}
         public double General_tolerance                           { set { _general_tolerance = value; } }
@@ -169,23 +175,7 @@ namespace Matmill
             else
                 gen = new Sliced_path_smooth_generator(_general_tolerance, 0.1 * _tool_r);
 
-            // NOTE: this manipulations are to make the beginning of spiral tangent to the polyline
-            object obj = _poly.GetSegment(0);
-            Vector2d tangent = new Vector2d();
-            if (obj is Line2F)
-            {
-                Line2F line = (Line2F)obj;
-                tangent = new Vector2d(line.p1, line.p2);
-            }
-            else if (obj is Arc2F)
-            {
-                Arc2F arc = (Arc2F)obj;
-                tangent = new Vector2d(arc.Center, arc.P1).Normal();
-                if (arc.Direction == RotationDirection.CW)
-                    tangent = tangent.Inverted();
-            }
-
-            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, tangent, _max_ted, _tool_r, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
+            gen.Append_spiral(sequence.Root_slice.Center, sequence.Root_slice.End, _spiral_tangent, _max_ted, _tool_r, _dir == RotationDirection.Unknown ? RotationDirection.CCW : _dir);
             gen.Append_slice_sequence(sequence);
 
             return gen.Path;
@@ -195,7 +185,7 @@ namespace Matmill
         {
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
-            
+
             _topo = new Topographer(_poly, new Polyline[] { });
 
             double step = calc_optimal_step();

@@ -185,6 +185,44 @@ namespace Matmill
             return tree_start;
         }
 
+        // with the manual startpoint, which is a hint
+        private static Point2F prepare_segments_w_hinted_starpoint(Topographer topo, List<Line2F> segments, Segpool pool, double min_dist_to_wall, double general_tolerance, Point2F startpoint)
+        {
+            // same as automatic, but seek the segment with the closest end to startpoint
+            double min_dist = double.MaxValue;
+            Point2F tree_start = Point2F.Undefined;
+
+            foreach (Line2F seg in segments)
+            {
+                double r1 = topo.Get_dist_to_wall(seg.p1);
+                double r2 = topo.Get_dist_to_wall(seg.p2);
+
+                if (r1 >= min_dist_to_wall)
+                {
+                    pool.Add(seg, false);
+                    double dist = startpoint.DistanceTo(seg.p1);
+                    if (dist < min_dist)
+                    {
+                        min_dist = dist;
+                        tree_start = seg.p1;
+                    }
+                }
+                if (r2 >= min_dist_to_wall)
+                {
+                    pool.Add(seg, true);
+                    double dist = startpoint.DistanceTo(seg.p2);
+                    if (dist < min_dist)
+                    {
+                        min_dist = dist;
+                        tree_start = seg.p2;
+                    }
+                }
+            }
+
+            return tree_start;
+        }
+
+
         private static void build_branch(Medial_branch me, Segpool pool, double min_branch_len)
         {
             Point2F running_end = me.End;
@@ -224,7 +262,7 @@ namespace Matmill
             build_branch(root, pool, min_branch_len);
         }
 
-        public static bool Build(Medial_branch root, Topographer topo, List<Point2F> samples, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
+        public static bool Build(Medial_branch root, Topographer topo, List<Point2F> samples, double general_tolerance, Point2F startpoint, double min_dist_to_wall, bool startpoint_is_a_hint)
         {
             List<Line2F> medial_axis_segments = get_medial_axis_segments(topo, samples, general_tolerance);
 
@@ -235,7 +273,9 @@ namespace Matmill
             Point2F tree_start;
             if (startpoint.IsUndefined)
                 tree_start = prepare_segments_w_auto_startpoint(topo, medial_axis_segments, pool, min_dist_to_wall);
-            else
+            else if (startpoint_is_a_hint)
+                tree_start = prepare_segments_w_hinted_starpoint(topo, medial_axis_segments, pool, min_dist_to_wall, general_tolerance, startpoint);
+            else 
                 tree_start = prepare_segments_w_manual_starpoint(topo, medial_axis_segments, pool, min_dist_to_wall, general_tolerance, startpoint);
 
             if (tree_start.IsUndefined)
@@ -245,10 +285,11 @@ namespace Matmill
             }
 
             Logger.log("done analyzing segments");
-            Logger.log("got {0} hashes", pool.N_hashes);
+            Logger.log("got {0} hashes", pool.N_hashes);            
 
-            if (! startpoint.IsUndefined)
+            if (! (startpoint.IsUndefined || startpoint_is_a_hint))                                           
                 root.Add_point(startpoint);
+            
             root.Add_point(tree_start);
 
             build_tree(root, pool, general_tolerance);

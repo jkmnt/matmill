@@ -113,8 +113,8 @@ namespace Matmill
             Point2F last_sample = points[points.Count - 1];
             Point2F poly_end = (Point2F)p.LastPoint;
 
-            if (last_sample.DistanceTo(poly_end) > step * 0.001)            
-                points.Add(poly_end);            
+            if (last_sample.DistanceTo(poly_end) > step * 0.001)
+                points.Add(poly_end);
 
             return points;
         }
@@ -165,12 +165,12 @@ namespace Matmill
             return plist;
         }
 
-        public bool Build_medial_tree(Medial_branch tree, double sample_step, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
+        public bool Build_medial_tree(Medial_branch tree, double sample_step, double general_tolerance, Point2F startpoint, double min_dist_to_wall, bool startpoint_is_a_hint)
         {
             List<Point2F> samples = Get_samples(sample_step);
             Logger.log("got {0} points", samples.Count);
 
-            return Medial_builder.Build(tree, this, samples, general_tolerance, startpoint, min_dist_to_wall);
+            return Medial_builder.Build(tree, this, samples, general_tolerance, startpoint, min_dist_to_wall, startpoint_is_a_hint);
         }
 
         public Topographer(Polyline outline, Polyline[] islands)

@@ -311,16 +311,16 @@ namespace Trochomops
             List<Surface> surfaces = new List<Surface>();
 
             foreach (Toolpath path in toolpaths)
-            {   
+            {
                 // show lead-ins for the first depth level
-                if (path.Bottom == first_bottom && path.Leadin != null)                
+                if (path.Bottom == first_bottom && path.Leadin != null)
                     surfaces.Add(polyline_to_surface(path.Leadin, path.Bottom));
 
                 // show cut traces for the last depth level
                 if (path.Bottom == last_bottom)
                 {
                     foreach (Sliced_path_item item in path.Trajectory)
-                    {                        
+                    {
                         if (item.Item_type == Sliced_path_item_type.SLICE || item.Item_type == Sliced_path_item_type.SPIRAL)
                             surfaces.Add(polyline_to_surface(item, path.Bottom));
                     }
@@ -553,7 +553,7 @@ namespace Trochomops
             if (_toolpaths.Count == 0) return Point3F.Undefined;
             Toolpath tp0 = _toolpaths[0];
             if (tp0.Leadin != null)
-                return tp0.Leadin.FirstPoint;
+                return new Point3F(tp0.Leadin.FirstPoint.X, tp0.Leadin.FirstPoint.Y, tp0.Leadin.FirstPoint.Z + tp0.Bottom);
             if (tp0.Trajectory.Count == 0) return Point3F.Undefined;
             Sliced_path_item ppi = tp0.Trajectory[0];
             if (ppi.Points.Count == 0) return Point3F.Undefined;
