@@ -311,16 +311,16 @@ namespace Trochomops
             List<Surface> surfaces = new List<Surface>();
 
             foreach (Toolpath path in toolpaths)
-            {   
+            {
                 // show lead-ins for the first depth level
-                if (path.Bottom == first_bottom && path.Leadin != null)                
+                if (path.Bottom == first_bottom && path.Leadin != null)
                     surfaces.Add(polyline_to_surface(path.Leadin, path.Bottom));
 
                 // show cut traces for the last depth level
                 if (path.Bottom == last_bottom)
                 {
                     foreach (Sliced_path_item item in path.Trajectory)
-                    {                        
+                    {
                         if (item.Item_type == Sliced_path_item_type.SLICE || item.Item_type == Sliced_path_item_type.SPIRAL)
                             surfaces.Add(polyline_to_surface(item, path.Bottom));
                     }
@@ -666,6 +666,9 @@ namespace Trochomops
             // XXX: what this line for ?
             base._CADFile = iv.CADFile;
 
+            if (selected)
+                base.PaintStartPoint(iv, d3d);
+
             if (_trajectories.Count == 0) return;
 
             foreach (Toolpath item in _toolpaths)
@@ -676,9 +679,6 @@ namespace Trochomops
 
             if (base._CADFile.ShowRapids)
                 paint_rapids(d3d);
-
-            if (selected)
-                base.PaintStartPoint(iv, d3d);
         }
 
         public Trochomop(Trochomop src) : base(src)

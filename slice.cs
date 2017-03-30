@@ -291,8 +291,18 @@ namespace Matmill
             Point2F end = End;
             Point2F center = Center;
 
-            Vector2d v1 = new Vector2d(center, start).Rotated(-(int)dir * leadin_angle);
-            Vector2d v2 = new Vector2d(center, end).Rotated((int)dir * leadout_angle);
+            Vector2d old_v1 = new Vector2d(center, start);
+            Vector2d old_v2 = new Vector2d(center, end);
+
+            Vector2d v1 = old_v1.Rotated(-(int)dir * leadin_angle);
+            Vector2d v2 = old_v2.Rotated((int)dir * leadout_angle);
+
+            double old_det = old_v1.Det(old_v2);
+            double new_det = v1.Det(v2);
+
+            // can't apply since slice will collapse
+            if (Math.Sign(old_det) != Math.Sign(new_det))
+                return;
 
             if (_segments.Count == 1)   // common case
             {
@@ -304,6 +314,7 @@ namespace Matmill
                 _segments[_segments.Count - 1] = new Arc2F(center, _segments[_segments.Count - 1].P1, center + v2.Point, dir);
             }
         }
+
 
         private void create_arc_circle(Point2F p1, RotationDirection dir)
         {
