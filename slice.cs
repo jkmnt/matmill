@@ -41,7 +41,7 @@ namespace Matmill
 
         static private double angle_between_vectors(Vector2d v0, Vector2d v1, RotationDirection dir)
         {
-            double angle = v0.Ccw_angle_to(v1);
+            double angle = v1.CCW_angle_from(v0);
             return (dir == RotationDirection.CCW) ? angle : (2.0 * Math.PI - angle);
         }
 
@@ -114,12 +114,9 @@ namespace Matmill
             max = new Point2F(Math.Max(seg0_max.X, seg1_max.X), Math.Max(seg0_max.Y, seg1_max.Y));
         }
 
-
         public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
         {
             double clearance = end_clearance;
-
-            return;
 
             // check if arc is small. refining is worthless in this case
             // criterion for smallness: there should be at least 4 segments with chord = clearance, plus
@@ -127,8 +124,8 @@ namespace Matmill
             // will define the min radius of circumscribed circle. clearance = 2 * R * sin (Pi / 5),
             // R = clearance / 2 / sin (Pi / 5)
 
-            if (_segments.Count != 1)
-                throw new Exception("attempt to refine slice with n segments != 1");            
+            if (_segments[0].P2.DistanceTo(_segments[1].P1) != 0.0)
+                throw new Exception("attempt to refine already refined slice");
 
             double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
             if (this.Radius <= r_min)
@@ -137,7 +134,107 @@ namespace Matmill
             if (colliding_slices.Contains(this))
                 throw new Exception("attempt to collide slice with itself");
 
-            Arc2F arc = _segments[0];
+            Line2F c1_insects = _segments[0].CircleIntersect(new Circle2F(this.Start, clearance));
+            Line2F c2_insects = _segments[1].CircleIntersect(new Circle2F(this.End, clearance));
+            Point2F c1 = c1_insects.p1.IsUndefined ? c1_insects.p2 : c1_insects.p1;
+            Point2F c2 = c2_insects.p1.IsUndefined ? c2_insects.p2 : c2_insects.p1;
+
+            Arc2F seg0 = _segments[0];
+
+            // trim seg0
+            foreach (Slice s in colliding_slices)
+            {
+                if (s == _parent)
+                    continue;  // no reason to process it
+
+                Line2F secant = seg0.CircleIntersect(s.Ball);
+
+                // just for now - ignore the case of fully inside
+                if (secant.p1.IsUndefined && secant.p2.IsUndefined)
+                    continue;
+
+                // two intersections - ignore
+                if (! (secant.p1.IsUndefined || secant.p2.IsUndefined))
+                    continue;
+
+                // single intersection
+                Point2F splitpt = secant.p1.IsUndefined ? secant.p2 : secant.p1;
+                if (seg0.P1.DistanceTo(s.Center) < seg0.P2.DistanceTo(s.Center))
+                {
+//                  if (splitpt.DistanceTo(seg0.P1) < clearance)
+                        continue;  // nothing to remove
+                }
+                else
+                {
+                    if (splitpt.DistanceTo(seg0.P1) < clearance)
+                        splitpt = c1;
+                }
+
+                seg0 = new Arc2F(this.Center, this.Start, splitpt, this.Dir);
+            }
+
+            Arc2F seg1 = _segments[1];
+
+            // trim seg1
+            foreach (Slice s in colliding_slices)
+            {
+                if (s == _parent)
+                    continue;  // no reason to process it
+
+                Line2F secant = seg1.CircleIntersect(s.Ball);
+
+                // just for now - ignore the case of fully inside
+                if (secant.p1.IsUndefined && secant.p2.IsUndefined)
+                    continue;
+
+                // two intersections - ignore
+                if (! (secant.p1.IsUndefined || secant.p2.IsUndefined))
+                    continue;
+
+                // single intersection
+                Point2F splitpt = secant.p1.IsUndefined ? secant.p2 : secant.p1;
+                if (seg1.P2.DistanceTo(s.Center) < seg1.P1.DistanceTo(s.Center))
+                {
+//                  if (splitpt.DistanceTo(seg1.P2) < clearance)
+                    continue;  // nothing to remove
+                }
+                else
+                {
+                    if (splitpt.DistanceTo(seg1.P2) < clearance)
+                        splitpt = c2;
+                }
+
+                seg1 = new Arc2F(this.Center, splitpt, this.End, this.Dir);
+            }
+
+            if (seg0.P2.DistanceTo(seg1.P1) < clearance * 2) // segment is too short, ignore it
+                return;
+
+            _segments.Clear();
+            _segments.Add(seg0);
+            _segments.Add(seg1);
+        }
+
+
+        public void Refine_old(List<Slice> colliding_slices, double end_clearance, double tool_r)
+        {
+            double clearance = end_clearance;
+
+            // check if arc is small. refining is worthless in this case
+            // criterion for smallness: there should be at least 4 segments with chord = clearance, plus
+            // one segment to space ends far enough. A pentagon with a 5 segments with edge length = clearance
+            // will define the min radius of circumscribed circle. clearance = 2 * R * sin (Pi / 5),
+            // R = clearance / 2 / sin (Pi / 5)
+
+            if (_segments[0].P2.DistanceTo(_segments[1].P1) != 0.0)
+                throw new Exception("attempt to refine already refined slice");
+
+            double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
+            if (this.Radius <= r_min)
+                return;
+
+            if (colliding_slices.Contains(this))
+                throw new Exception("attempt to collide slice with itself");
 
             // now apply the colliding slices. to keep things simple and robust, we apply just one slice - the one who trims
             // us most (removed length of arc is greatest).
@@ -157,10 +254,13 @@ namespace Matmill
             // single intersections are transformed to the double intersections, second point being one of the end clearances.
 
             // TODO: calculate clearance point the right way, with math :-)
-            Line2F c1_insects = arc.CircleIntersect(new Circle2F(arc.P1, clearance));
-            Line2F c2_insects = arc.CircleIntersect(new Circle2F(arc.P2, clearance));
+            Line2F c1_insects = _segments[0].CircleIntersect(new Circle2F(this.Start, clearance));
+            Line2F c2_insects = _segments[1].CircleIntersect(new Circle2F(this.End, clearance));
             Point2F c1 = c1_insects.p1.IsUndefined ? c1_insects.p2 : c1_insects.p1;
             Point2F c2 = c2_insects.p1.IsUndefined ? c2_insects.p2 : c2_insects.p1;
+
+            Vector2d v_c1 = new Vector2d(this.Center, c1);
+            Vector2d v_c2 = new Vector2d(this.Center, c2);
 
             Line2F max_secant = new Line2F();
             double max_sweep = 0;
@@ -169,61 +269,37 @@ namespace Matmill
             {
                 if (s == _parent)
                     continue;  // no reason to process it
-                Line2F secant = arc.CircleIntersect(s.Ball);
 
-                if (secant.p1.IsUndefined && secant.p2.IsUndefined)
+                Line2F secant = this.Ball.CircleIntersect(s.Ball);
+
+                // only double intersections are of interest
+                if (secant.p1.IsUndefined || secant.p2.IsUndefined)
                     continue;
 
-                if (secant.p1.IsUndefined || secant.p2.IsUndefined)
-                {
-                    // single intersection
-                    Point2F splitpt = secant.p1.IsUndefined ? secant.p2 : secant.p1;
-                    if (arc.P1.DistanceTo(s.Center) < arc.P2.DistanceTo(s.Center))
-                    {
-                        if (splitpt.DistanceTo(arc.P1) < clearance)
-                            continue;  // nothing to remove
-                        else if (splitpt.DistanceTo(arc.P2) < clearance)
-                            secant = new Line2F(c1, c2);
-                        else
-                            secant = new Line2F(c1, splitpt);
-                    }
-                    else
-                    {
-                        // remove second segment
-                        if (splitpt.DistanceTo(arc.P2) < clearance)
-                            continue;
-                        else if (splitpt.DistanceTo(arc.P1) < clearance)
-                            secant = new Line2F(c1, c2);
-                        else
-                            secant = new Line2F(splitpt, c2);
-                    }
-                }
-                else
-                {
-                    // double intersection
-                    if (secant.p1.DistanceTo(arc.P1) < clearance)
-                        secant.p1 = c1;
-                    else if (secant.p1.DistanceTo(arc.P2) < clearance)
-                        secant.p1 = c2;
+                Vector2d v_ins1 = new Vector2d(this.Center, secant.p1);
+                Vector2d v_ins2 = new Vector2d(this.Center, secant.p2);
 
-                    if (secant.p2.DistanceTo(arc.P1) < clearance)
-                        secant.p2 = c1;
-                    else if (secant.p2.DistanceTo(arc.P2) < clearance)
-                        secant.p2 = c2;
+                if (angle_between_vectors(v_c1, v_ins1, this.Dir) > angle_between_vectors(v_c1, v_c2, this.Dir))
+                {
+                    secant.p1 = c1.DistanceTo(s.Center) < c2.DistanceTo(s.Center) ? c1 : c2;
+                    v_ins1 = new Vector2d(this.Center, secant.p1);
+                }
+
+                if (angle_between_vectors(v_c1, v_ins2, this.Dir) > angle_between_vectors(v_c1, v_c2, this.Dir))
+                {
+                    secant.p2 = c1.DistanceTo(s.Center) < c2.DistanceTo(s.Center) ? c1 : c2;
+                    v_ins2 = new Vector2d(this.Center, secant.p2);
                 }
 
                 if (secant.p1.DistanceTo(secant.p2) < clearance * 2) // segment is too short, ignore it
                     continue;
 
+                double sweep = angle_between_vectors(v_ins1, v_ins2, this.Dir);
+
                 // sort insects by sweep (already sorted for single, may be unsorted for the double)
-                Vector2d v_p1 = new Vector2d(arc.Center, arc.P1);
-                Vector2d v_ins1 = new Vector2d(arc.Center, secant.p1);
-                Vector2d v_ins2 = new Vector2d(arc.Center, secant.p2);
-
-
-                double sweep = angle_between_vectors(v_ins1, v_ins2, arc.Direction);
-
-                if (angle_between_vectors(v_p1, v_ins1, arc.Direction) > angle_between_vectors(v_p1, v_ins2, arc.Direction))
+                // NOTE: to keep the good margin for numerical errors, we're sorting from original start point, not safe_arc start
+                Vector2d v_p1 = new Vector2d(this.Center, this.Start);
+                if (angle_between_vectors(v_p1, v_ins1, this.Dir) > angle_between_vectors(v_p1, v_ins2, this.Dir))
                 {
                     secant = new Line2F(secant.p2, secant.p1);
                     sweep = 2.0 * Math.PI - sweep;
@@ -232,11 +308,15 @@ namespace Matmill
                 if (sweep > max_sweep)
                 {
                     // ok, a last check - removed arc midpoint should be inside the colliding circle
-                    Arc2F check_arc = new Arc2F(arc.Center, secant.p1, secant.p2, arc.Direction);
+                    Arc2F check_arc = new Arc2F(this.Center, secant.p1, secant.p2, this.Dir);
                     if (check_arc.Midpoint.DistanceTo(s.Center) < s.Radius)
                     {
                         max_sweep = sweep;
                         max_secant = secant;
+                    }
+                    else
+                    {
+                        ;
                     }
                 }
             }
@@ -244,12 +324,14 @@ namespace Matmill
             if (max_sweep == 0)
                 return;
 
-            Arc2F head = new Arc2F(arc.Center, arc.P1, max_secant.p1, arc.Direction);
-            Arc2F tail = new Arc2F(arc.Center, max_secant.p2, arc.P2, arc.Direction);
+            Arc2F head = new Arc2F(this.Center, this.Start, max_secant.p1, this.Dir);
+            Arc2F tail = new Arc2F(this.Center, max_secant.p2, this.End, this.Dir);
 
             _segments.Clear();
             _segments.Add(head);
             _segments.Add(tail);
+
+            return;
 
             // recalculate max TED accounting for the new endpoints.
             // this TED is 'virtual' and averaged with previous max_ted to make arcs look more pretty
@@ -279,6 +361,9 @@ namespace Matmill
 
         public void Append_leadin_and_leadout(double leadin_angle, double leadout_angle)
         {
+            // TODO: since we got a two segments, we could analyze collapse in a better way
+            return;
+
             RotationDirection dir = Dir;
             Point2F start = Start;
             Point2F end = End;

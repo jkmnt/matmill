@@ -80,7 +80,7 @@ namespace Matmill
             Vector2d v_end = new Vector2d(center, end);
 
 
-            double theta_end = v_end.Ccw_angle;
+            double theta_end = v_end.CCW_angle;
             double theta_step = 2 * Math.PI / 6;
             double a = spacing / (2 * Math.PI);
             double theta_start;
@@ -97,7 +97,7 @@ namespace Matmill
             }
             else
             {
-                theta_start = start_tangent.Ccw_angle;
+                theta_start = start_tangent.CCW_angle;
                 double candidate_a;
 
                 if (dir == RotationDirection.CCW)

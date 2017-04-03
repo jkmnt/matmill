@@ -21,7 +21,7 @@ namespace Geom
             get { return Math.Atan2(Y, X); }
         }
 
-        public double Ccw_angle
+        public double CCW_angle
         {
             get
             {
@@ -88,14 +88,14 @@ namespace Geom
             return X * b.Y - Y * b.X;
         }
 
-        public double Angle_to(Vector2d b)
+        public double Angle_from(Vector2d b)
         {
-            return Math.Atan2(this.Det(b), this * b);
+            return Math.Atan2(b.Det(this), b * this);
         }
 
-        public double Ccw_angle_to(Vector2d b)
+        public double CCW_angle_from(Vector2d b)
         {
-            double angle = this.Angle_to(b);
+            double angle = this.Angle_from(b);
             return angle >= 0 ? angle : angle + 2.0 * Math.PI;
         }
 
