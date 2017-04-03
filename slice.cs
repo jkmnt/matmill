@@ -31,8 +31,8 @@ namespace Matmill
         public Circle2F Ball                { get { return _ball; } }
         public List<Arc2F> Segments         { get { return _segments; } }
         public Point2F Center               { get { return _ball.Center; } }
-        public Point2F End                  { get { return _segments[_segments.Count - 1].P2; } }
         public Point2F Start                { get { return _segments[0].P1; } }
+        public Point2F End                  { get { return _segments[1].P2; } }
         public RotationDirection Dir        { get { return _segments[0].Direction; } }
         public Slice Parent                 { get { return _parent; } }
         public Slice_placement Placement    { get { return _placement; } }
@@ -75,6 +75,10 @@ namespace Matmill
 
         private void calc_teds(double tool_r)
         {
+            Vector2d v_move = new Vector2d(_parent.Center, this.Center);
+            Point2F mid_tool_center = this.Center + (v_move.Unit() * this.Radius).Point;
+            _mid_ted  = calc_ted(mid_tool_center, tool_r);
+
             // expand both slices to form walls
             Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + tool_r);
             Circle2F this_wall = new Circle2F(this.Center, this.Radius + tool_r);
@@ -88,45 +92,34 @@ namespace Matmill
                 return;
             }
 
-            Vector2d v_move = new Vector2d(_parent.Center, this.Center);
             Vector2d v1 = new Vector2d(_parent.Center, wall_insects.p1);
             Point2F cut_tail = v_move.Det(v1) * (int)this.Dir < 0 ? wall_insects.p1 : wall_insects.p2;
             Vector2d v_tail = new Vector2d(this.Center, cut_tail);
 
             Point2F entry_tool_center = this.Center + (v_tail.Unit() * this.Radius).Point;
             _entry_ted = calc_ted(entry_tool_center, tool_r);
-
-            Point2F mid_tool_center = this.Center + (v_move.Unit() * this.Radius).Point;
-            _mid_ted  = calc_ted(mid_tool_center, tool_r);
         }
 
         public void Get_extrema(ref Point2F min, ref Point2F max)
         {
-            // special processing for the very first slice, treat it as ball
-            if (_parent == null)
-            {
-                Get_ball_extrema(ref min, ref max);
-                return;
-            }
+            Point2F seg0_min = Point2F.Undefined;
+            Point2F seg0_max = Point2F.Undefined;
+            Point2F seg1_min = Point2F.Undefined;
+            Point2F seg1_max = Point2F.Undefined;
 
-            Arc2F arc;
-            if (_segments.Count == 1)
-                arc = _segments[0];
-            else
-                arc = new Arc2F(_segments[0].P1, _segments[_segments.Count - 1].P2, _segments[0].Center, _segments[0].Direction);
+            _segments[0].GetExtrema(ref seg0_min, ref seg0_max);
+            _segments[1].GetExtrema(ref seg1_min, ref seg1_max);
 
-            arc.GetExtrema(ref min, ref max);
+            min = new Point2F(Math.Min(seg0_min.X, seg1_min.X), Math.Min(seg0_min.Y, seg1_min.Y));
+            max = new Point2F(Math.Max(seg0_max.X, seg1_max.X), Math.Max(seg0_max.Y, seg1_max.Y));
         }
 
-        public void Get_ball_extrema(ref Point2F min, ref Point2F max)
-        {
-            min = new Point2F(this.Center.X - this.Radius, this.Center.Y - this.Radius);
-            max = new Point2F(this.Center.X + this.Radius, this.Center.Y + this.Radius);
-        }
 
         public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
         {
             double clearance = end_clearance;
+
+            return;
 
             // check if arc is small. refining is worthless in this case
             // criterion for smallness: there should be at least 4 segments with chord = clearance, plus
@@ -135,16 +128,16 @@ namespace Matmill
             // R = clearance / 2 / sin (Pi / 5)
 
             if (_segments.Count != 1)
-                throw new Exception("attempt to refine slice with n segments != 1");
-
-            Arc2F arc = _segments[0];
+                throw new Exception("attempt to refine slice with n segments != 1");            
 
             double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
-            if (arc.Radius <= r_min)
+            if (this.Radius <= r_min)
                 return;
 
             if (colliding_slices.Contains(this))
                 throw new Exception("attempt to collide slice with itself");
+
+            Arc2F arc = _segments[0];
 
             // now apply the colliding slices. to keep things simple and robust, we apply just one slice - the one who trims
             // us most (removed length of arc is greatest).
@@ -304,15 +297,8 @@ namespace Matmill
             if (Math.Sign(old_det) != Math.Sign(new_det))
                 return;
 
-            if (_segments.Count == 1)   // common case
-            {
-                _segments[0] = new Arc2F(center, center + v1.Point, center + v2.Point, dir);
-            }
-            else
-            {
-                _segments[0] = new Arc2F(center, center + v1.Point, _segments[0].P2, dir);
-                _segments[_segments.Count - 1] = new Arc2F(center, _segments[_segments.Count - 1].P1, center + v2.Point, dir);
-            }
+            _segments[0] = new Arc2F(center, center + v1.Point, _segments[0].P2, dir);
+            _segments[1] = new Arc2F(center, _segments[1].P1, center + v2.Point, dir);
         }
 
 
@@ -320,18 +306,11 @@ namespace Matmill
         {
             double seg_sweep = dir == RotationDirection.CW ? -2 * Math.PI / 3 : 2 * Math.PI / 3;
 
-            Vector2d v1 = new Vector2d(this.Center, p1);
-            Vector2d v2 = v1.Rotated(seg_sweep);
-            Vector2d v3 = v1.Rotated(2 * seg_sweep);
-
-            Point2F p2 = this.Center + (Point2F)v2;
-            Point2F p3 = this.Center + (Point2F)v3;
+            Point2F p2 = this.Center - (Point2F)new Vector2d(this.Center, p1);
 
             _segments.Clear();
-
             _segments.Add(new Arc2F(this.Center, p1, p2, dir));
-            _segments.Add(new Arc2F(this.Center, p2, p3, dir));
-            _segments.Add(new Arc2F(this.Center, p3, p1, dir));
+            _segments.Add(new Arc2F(this.Center, p2, p1, dir));
         }
 
         public void Change_startpoint(Point2F p1)
@@ -353,37 +332,71 @@ namespace Matmill
             double delta_r = this.Radius - parent.Radius;
             double coarse_ted = dist + delta_r;
 
-            // 1) one ball is inside other, no intersections
-            // 2) balls are spaced too far and do not intersect, TED is 0, distance is positive
-            // 3) balls are intersect, TED is valid
-            if (dist <= Math.Abs(delta_r))
+            // possible placements for the slice:
+            // 1) too far from parent and do not intersect - overshoot
+            // 2) far from parent and intersect in a single intermediate point - overshoot
+            // 3) inside the parent and intersect in a single point - undershoot
+            // 4) contains the parent and intersect in a single point - ok, but handle with care
+            // 5) inside the parent and do not intersect - undershoot
+            // 6) contains the parent and do not intersect - undershoot (?)
+            // 7) completely matches the parent and intersect in infinite number of points - undershoot (?)
+            // 8) intersects the parent in two points - ok
+
+            // process cases 1 and 2. discard slices which too far and on the edge of being too far.
+            // use 1% of cutter diameter as a tolerance to avoid introducing extra parameters
+            if (dist > parent.Radius && dist > this.Radius && Math.Abs(parent.Radius + this.Radius - dist) > tool_r * 0.01)
+            {
+                _placement = Slice_placement.TOO_FAR;
+                return;
+            }
+
+            // process case 7
+            if (dist == 0 && delta_r == 0)
             {
                 _placement = Slice_placement.INSIDE_ANOTHER;
                 return;
             }
 
-            if (dist >= this.Radius + parent.Radius)
-            {
-                _placement = Slice_placement.TOO_FAR;
-                return;
-            }
-            // TED can't be more >= tool diameter, this check prevents fails during the calculation of real angle-based TED
+            // discard the slices with TED >= tool diameter early.
+            // these slices are not valid and check prevents fails during the calculation of real angle-based TED
             if (coarse_ted > tool_r * 1.999)
             {
                 _placement = Slice_placement.TOO_FAR;
                 return;
             }
 
+            // now we either have no intersections (cases 5, 6), one intersection (cases 3, 4), two intersections (case 8)
             Line2F insects = _parent.Ball.CircleIntersect(this._ball);
-            if (insects.p1.IsUndefined || insects.p2.IsUndefined)
+
+            // cases 5, 6
+            if (insects.p1.IsUndefined && insects.p2.IsUndefined)
             {
-                // try to return meaningful result even if CB routine had failed (unlikely)
-                Logger.err("no intersections found there intersections should be (_parent.Ball.CircleIntersect(_ball))");
-                _placement = (dist <= this.Radius || dist <= parent.Radius) ? Slice_placement.INSIDE_ANOTHER : Slice_placement.TOO_FAR;
+                _placement = Slice_placement.INSIDE_ANOTHER;
                 return;
             }
 
-            _placement = Slice_placement.NORMAL;
+            // cases 3, 4
+            if (insects.p1.IsUndefined || insects.p2.IsUndefined)
+            {
+                // case 3
+                if (this.Radius <= parent.Radius)
+                {
+                    _placement = Slice_placement.INSIDE_ANOTHER;
+                    return;
+                }
+                // case 4
+                _placement = Slice_placement.NORMAL;
+
+                if (insects.p1.IsUndefined)
+                    insects.p1 = insects.p2;
+                else
+                    insects.p2 = insects.p1;
+            }
+            else
+            {
+                // case 8
+                _placement = Slice_placement.NORMAL;
+            }
 
             Vector2d v_move = new Vector2d(_parent.Center, this.Center);
             Vector2d v1 = new Vector2d(_parent.Center, insects.p1);
@@ -404,13 +417,24 @@ namespace Matmill
                 }
             }
 
-            Arc2F arc;
-            if (default_dir == dir)
-                arc = new Arc2F(this.Center, insects.p1, insects.p2, dir);
-            else
-                arc = new Arc2F(this.Center, insects.p2, insects.p1, dir);
+            Point2F midpoint = this.Center + (v_move.Unit() * this.Radius).Point;
 
-            _segments.Add(arc);
+            Arc2F seg0;
+            Arc2F seg1;
+
+            if (default_dir == dir)
+            {
+                seg0 = new Arc2F(this.Center, insects.p1, midpoint, dir);
+                seg1 = new Arc2F(this.Center, midpoint, insects.p2, dir);
+            }
+            else
+            {
+                seg0 = new Arc2F(this.Center, insects.p2, midpoint, dir);
+                seg1 = new Arc2F(this.Center, midpoint, insects.p1, dir);
+            }
+
+            _segments.Add(seg0);
+            _segments.Add(seg1);
 
             calc_teds(tool_r);
 

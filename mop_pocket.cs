@@ -23,6 +23,8 @@ namespace Trochomops
 
         protected double _min_stepover_percentage = 0.9;
 
+        private List<Polyline> _debug_mat;
+
         //--- invisible and non-serializable properties
 
         [XmlIgnore, Browsable(false)]
@@ -124,7 +126,9 @@ namespace Trochomops
                 gen.Should_smooth_chords = _should_smooth_chords;
             }
 
-            return gen.run();
+            //_debug_mat.AddRange(gen.Get_debug_medial_axis());
+
+            return gen.Run();
         }
 
         protected override void _GenerateToolpathsWorker()
@@ -132,9 +136,10 @@ namespace Trochomops
             try
             {
                 base.reset_toolpaths();
+                _debug_mat = new List<Polyline>();
 
                 if (base.ToolDiameter.Cached == 0)
-                {                    
+                {
                     Logger.err("tool diameter is zero");
                     base.MachineOpStatus = MachineOpStatus.Errors;
                     return;
@@ -198,6 +203,19 @@ namespace Trochomops
             {
                 base._GenerateToolpathsFinal();
             }
+        }
+
+        public override void Paint(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, bool selected)
+        {
+            if (_debug_mat != null)
+            {
+                foreach (Polyline p in _debug_mat)
+                {
+                    p.Paint(d3d, Color.Cyan, Color.Cyan);
+                }
+            }
+
+            base.Paint(iv, d3d, arccolor, linecolor, selected);
         }
 
         public override MachineOp Clone()
