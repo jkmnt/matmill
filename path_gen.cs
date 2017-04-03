@@ -22,7 +22,7 @@ namespace Matmill
 
     public class Sliced_path : List<Sliced_path_item>
     {
-        public object Extension;        
+        public object Extension;
     }
 
     public class Sliced_path_item: Polyline
@@ -81,18 +81,37 @@ namespace Matmill
             // emit segments
             for (int segidx = 0; segidx < slice.Segments.Count; segidx++)
             {
+                Arc2F seg = slice.Segments[segidx];
+
                 // connect segments
                 if (segidx > 0)
                 {
                     Sliced_path_item shortcut = new Sliced_path_item(Sliced_path_item_type.SLICE_SHORTCUT);
                     shortcut.Add(slice.Segments[segidx - 1].P2);
-                    shortcut.Add(slice.Segments[segidx].P1);
+                    shortcut.Add(seg.P1);
                     Path.Add(shortcut);
                 }
 
-                Sliced_path_item arc = new Sliced_path_item(Sliced_path_item_type.SLICE);
-                arc.Add(slice.Segments[segidx], _general_tolerance);
-                Path.Add(arc);
+                // NOTE: cambam struggles with arcs close to 360 degrees. we split arcs > 180 degrees in half to help him.
+                if (Math.Abs(seg.Sweep) < 180)
+                {
+                    Sliced_path_item arc = new Sliced_path_item(Sliced_path_item_type.SLICE);
+                    arc.Add(seg, _general_tolerance);
+                    Path.Add(arc);
+                }
+                else
+                {                                        
+                    Point2F midpoint = seg.Midpoint;                    
+
+                    Sliced_path_item arc0 = new Sliced_path_item(Sliced_path_item_type.SLICE);
+                    Sliced_path_item arc1 = new Sliced_path_item(Sliced_path_item_type.SLICE);
+
+                    arc0.Add(new Arc2F(seg.Center, seg.P1, midpoint, seg.Direction), _general_tolerance);
+                    arc1.Add(new Arc2F(seg.Center, midpoint, seg.P2, seg.Direction), _general_tolerance);
+
+                    Path.Add(arc0);
+                    Path.Add(arc1);
+                }                
             }
 
             _last_slice = slice;

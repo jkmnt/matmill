@@ -119,7 +119,7 @@ namespace Trochomops
                 gen.Should_smooth_chords = _should_smooth_chords;
             }
 
-            return gen.run();
+            return gen.Run();
         }
 
         private static Point2F lastpt(List<Sliced_path> trajectories)

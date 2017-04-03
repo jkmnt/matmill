@@ -20,7 +20,6 @@ namespace Matmill
         private Point2F _startpoint = Point2F.Undefined;
         private RotationDirection _dir = RotationDirection.CW;
         private bool _should_smooth_chords = false;
-        //private bool _should_emit_debug_medial_axis = false;
         private double _slice_leadin_angle = 3 * Math.PI / 180;
         private double _slice_leadout_angle = 0.5 * Math.PI / 180;
 
@@ -67,7 +66,7 @@ namespace Matmill
             return radius;
         }
 
-        public Sliced_path run()
+        public Sliced_path Run()
         {
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
@@ -93,6 +92,22 @@ namespace Matmill
 
             Logger.log("generating path");
             return generate_path(sequence);
+        }
+
+        public List<Polyline> Get_debug_medial_axis()
+        {
+            List<Polyline> result = new List<Polyline>();
+
+            Branch tree = new Branch(null);
+            bool is_ok = _topo.Build_medial_tree(tree, _tool_r / 10, _general_tolerance, _startpoint, _min_passable_mic_radius + _tool_r + _margin);
+
+            if (is_ok)
+            {
+                foreach (Branch b in tree.Df_traverse())
+                    result.Add(b.To_polyline());
+            }
+
+            return result;        
         }
 
         public Pocket_generator(Polyline outline, Polyline[] islands)
@@ -191,11 +206,11 @@ namespace Matmill
             return gen.Path;
         }
 
-        public Sliced_path run()
+        public Sliced_path Run()
         {
             if (_dir == RotationDirection.Unknown && _should_smooth_chords)
                 throw new Exception("smooth chords are not allowed for the variable mill direction");
-            
+
             _topo = new Topographer(_poly, new Polyline[] { });
 
             double step = calc_optimal_step();
