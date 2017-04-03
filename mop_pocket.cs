@@ -210,9 +210,7 @@ namespace Trochomops
             if (_debug_mat != null)
             {
                 foreach (Polyline p in _debug_mat)
-                {
                     p.Paint(d3d, Color.Cyan, Color.Cyan);
-                }
             }
 
             base.Paint(iv, d3d, arccolor, linecolor, selected);

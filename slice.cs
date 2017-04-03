@@ -73,12 +73,8 @@ namespace Matmill
             return ted > 0 ? ted : 0;
         }
 
-        private void calc_teds(double tool_r)
+        private double calc_entry_ted(double tool_r)
         {
-            Vector2d v_move = new Vector2d(_parent.Center, this.Center);
-            Point2F mid_tool_center = this.Center + (v_move.Unit() * this.Radius).Point;
-            _mid_ted  = calc_ted(mid_tool_center, tool_r);
-
             // expand both slices to form walls
             Circle2F parent_wall = new Circle2F(_parent.Center, _parent.Radius + tool_r);
             Circle2F this_wall = new Circle2F(this.Center, this.Radius + tool_r);
@@ -88,16 +84,17 @@ namespace Matmill
 
             if (wall_insects.p1.IsUndefined || wall_insects.p2.IsUndefined)
             {
-                Logger.err("no wall intersections #1");
-                return;
+                Logger.err("no wall intersections for entry ted #1");
+                return 0;
             }
 
             Vector2d v1 = new Vector2d(_parent.Center, wall_insects.p1);
+            Vector2d v_move = new Vector2d(_parent.Center, this.Center);
             Point2F cut_tail = v_move.Det(v1) * (int)this.Dir < 0 ? wall_insects.p1 : wall_insects.p2;
             Vector2d v_tail = new Vector2d(this.Center, cut_tail);
 
             Point2F entry_tool_center = this.Center + (v_tail.Unit() * this.Radius).Point;
-            _entry_ted = calc_ted(entry_tool_center, tool_r);
+            return calc_ted(entry_tool_center, tool_r);
         }
 
         public void Get_extrema(ref Point2F min, ref Point2F max)
@@ -114,7 +111,7 @@ namespace Matmill
             max = new Point2F(Math.Max(seg0_max.X, seg1_max.X), Math.Max(seg0_max.Y, seg1_max.Y));
         }
 
-        public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
+        public void Refine_new(List<Slice> colliding_slices, double end_clearance, double tool_r)
         {
             double clearance = end_clearance;
 
@@ -216,7 +213,7 @@ namespace Matmill
         }
 
 
-        public void Refine_old(List<Slice> colliding_slices, double end_clearance, double tool_r)
+        public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
         {
             double clearance = end_clearance;
 
@@ -264,6 +261,8 @@ namespace Matmill
 
             Line2F max_secant = new Line2F();
             double max_sweep = 0;
+
+            Arc2F safe_arc = new Arc2F(this.Center, c1, c2, this.Dir);
 
             foreach (Slice s in colliding_slices)
             {
@@ -427,39 +426,34 @@ namespace Matmill
             // 7) completely matches the parent and intersect in infinite number of points - undershoot (?)
             // 8) intersects the parent in two points - ok
 
-            // process cases 1 and 2. discard slices which too far and on the edge of being too far.
-            // use 1% of cutter diameter as a tolerance to avoid introducing extra parameters
-            if (dist > parent.Radius && dist > this.Radius && Math.Abs(parent.Radius + this.Radius - dist) > tool_r * 0.01)
-            {
-                _placement = Slice_placement.TOO_FAR;
-                return;
-            }
-
-            // process case 7
+            // case 7
             if (dist == 0 && delta_r == 0)
             {
                 _placement = Slice_placement.INSIDE_ANOTHER;
                 return;
             }
-
-            // discard the slices with TED >= tool diameter early.
+            // case 1 (and case 2 if calculation is unlikely precise)
+            if (dist >= this.Radius + parent.Radius)
+            {
+                _placement = Slice_placement.TOO_FAR;
+                return;
+            }
+            // discard the slices with TED >= tool diameter early
             // these slices are not valid and check prevents fails during the calculation of real angle-based TED
+            // this should cover case 2 too
             if (coarse_ted > tool_r * 1.999)
             {
                 _placement = Slice_placement.TOO_FAR;
                 return;
             }
-
             // now we either have no intersections (cases 5, 6), one intersection (cases 3, 4), two intersections (case 8)
             Line2F insects = _parent.Ball.CircleIntersect(this._ball);
-
             // cases 5, 6
             if (insects.p1.IsUndefined && insects.p2.IsUndefined)
             {
                 _placement = Slice_placement.INSIDE_ANOTHER;
                 return;
             }
-
             // cases 3, 4
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
             {
@@ -504,30 +498,26 @@ namespace Matmill
 
             Point2F midpoint = this.Center + (v_move.Unit() * this.Radius).Point;
 
-            Arc2F seg0;
-            Arc2F seg1;
-
             if (default_dir == dir)
             {
-                seg0 = new Arc2F(this.Center, insects.p1, midpoint, dir);
-                seg1 = new Arc2F(this.Center, midpoint, insects.p2, dir);
+                _segments.Add(new Arc2F(this.Center, insects.p1, midpoint, dir));
+                _segments.Add(new Arc2F(this.Center, midpoint, insects.p2, dir));
             }
             else
             {
-                seg0 = new Arc2F(this.Center, insects.p2, midpoint, dir);
-                seg1 = new Arc2F(this.Center, midpoint, insects.p1, dir);
+                _segments.Add(new Arc2F(this.Center, insects.p2, midpoint, dir));
+                _segments.Add(new Arc2F(this.Center, midpoint, insects.p1, dir));
             }
 
-            _segments.Add(seg0);
-            _segments.Add(seg1);
-
-            calc_teds(tool_r);
+            _mid_ted  = calc_ted(midpoint, tool_r);
 
             if (_mid_ted <= 0)
             {
                 Logger.warn("forced to patch mid_ted");
                 _mid_ted = coarse_ted;    // shouldn't be, but ok
             }
+
+            _entry_ted = calc_entry_ted(tool_r);
 
             _max_ted = Math.Max(_mid_ted, _entry_ted);
         }
