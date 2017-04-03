@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 using CamBam.Geom;
@@ -95,6 +96,37 @@ namespace Matmill
 
             return inner_segments;
         }
+
+        // take 3 well-spaced samples, find the center, check for all points to lay on a circle
+        private static bool recognize_perfect_circle(List<Point2F> samples, double tolerance, ref Point2F center)
+        {
+            if (samples.Count < 4)
+                return false;
+
+            Point2F sample0 = samples[0];
+            Point2F sample1 = samples[samples.Count / 4];
+            Point2F sample2 = samples[samples.Count / 2];
+
+            double xc = 0;
+            double yc = 0;
+
+            bool got_center = Geom.Utils.Circle_by_3_pt(sample0.X, sample0.Y, sample1.X, sample1.Y, sample2.X, sample2.Y, ref xc, ref yc);
+
+            if (! got_center)
+                return false;
+
+            center = new Point2F(xc, yc);
+            double radius = center.DistanceTo(sample0);
+
+            foreach (Point2F pt in samples)
+            {
+                if (Math.Abs(pt.DistanceTo(center) - radius) > tolerance)
+                    return false;
+            }
+
+            return true;
+        }
+
 
         private static Point2F prepare_segments_w_auto_startpoint(Topographer topo, List<Line2F> segments, Segpool pool, double min_dist_to_wall)
         {
@@ -226,7 +258,23 @@ namespace Matmill
 
         public static bool Build(Medial_branch root, Topographer topo, List<Point2F> samples, double general_tolerance, Point2F startpoint, double min_dist_to_wall)
         {
-            List<Line2F> medial_axis_segments = get_medial_axis_segments(topo, samples, general_tolerance);
+            // NOTE: circle is a special case for the medial builder - medial axis is just a single point.
+            // worth to make a quick check.
+            // circle should be handled in a special way, completely skipping the Voronoi partitioning
+
+            List<Line2F> medial_axis_segments;
+
+            Point2F center = Point2F.Undefined;
+            if (! recognize_perfect_circle(samples, general_tolerance, ref center))
+            {
+                medial_axis_segments = get_medial_axis_segments(topo, samples, general_tolerance);
+            }
+            else
+            {
+                Logger.log("recognized perfect circle");
+                medial_axis_segments = new List<Line2F>();
+                medial_axis_segments.Add(new Line2F(center, center));
+            }
 
             Logger.log("analyzing segments");
 
