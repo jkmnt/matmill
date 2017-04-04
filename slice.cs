@@ -111,7 +111,7 @@ namespace Matmill
             max = new Point2F(Math.Max(seg0_max.X, seg1_max.X), Math.Max(seg0_max.Y, seg1_max.Y));
         }
 
-        public void Refine_new(List<Slice> colliding_slices, double end_clearance, double tool_r)
+        public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
         {
             double clearance = end_clearance;
 
@@ -210,10 +210,24 @@ namespace Matmill
             _segments.Clear();
             _segments.Add(seg0);
             _segments.Add(seg1);
+
+            double ted_head_end = calc_ted(seg0.P2, tool_r);
+            double ted_tail_start = calc_ted(seg1.P1, tool_r);
+
+            double ted = Math.Max(ted_head_end, ted_tail_start);
+
+            if (ted <= 0)
+            {
+                Logger.err("max TED vanished after refining the slice !");
+                return;
+            }
+
+            ted = (ted + _mid_ted) / 2;
+            _max_ted = Math.Max(ted, _entry_ted);
         }
 
 
-        public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
+        public void Refine_old(List<Slice> colliding_slices, double end_clearance, double tool_r)
         {
             double clearance = end_clearance;
 
