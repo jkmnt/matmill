@@ -360,13 +360,12 @@ namespace Matmill
 
         public void Append_leadin_and_leadout(double leadin_angle, double leadout_angle)
         {
-            // TODO: since we got a two segments, we could analyze collapse in a better way
-            return;
-
             RotationDirection dir = Dir;
             Point2F start = Start;
             Point2F end = End;
             Point2F center = Center;
+
+            Vector2d v_move = new Vector2d(_parent.Center, center);
 
             Vector2d old_v1 = new Vector2d(center, start);
             Vector2d old_v2 = new Vector2d(center, end);
@@ -374,15 +373,18 @@ namespace Matmill
             Vector2d v1 = old_v1.Rotated(-(int)dir * leadin_angle);
             Vector2d v2 = old_v2.Rotated((int)dir * leadout_angle);
 
-            double old_det = old_v1.Det(old_v2);
-            double new_det = v1.Det(v2);
+            // do not allow segments to overlap:
+            // get sides of v1, v2 vectors relative to the midpoint vector of slice, account for rotation direction too.
+            // if no 180 degree segment overflow occured, v1_det should be negative while v2_should should pe positive
+            // skip the exact 180 degrees too
+            double v1_det = v_move.Det(v1) * (int)dir;
+            double v2_det = v_move.Det(v2) * (int)dir;
 
-            // can't apply since slice will collapse
-            if (Math.Sign(old_det) != Math.Sign(new_det))
-                return;
+            if (v1_det < 0)
+                _segments[0] = new Arc2F(center, center + v1.Point, _segments[0].P2, dir);
 
-            _segments[0] = new Arc2F(center, center + v1.Point, _segments[0].P2, dir);
-            _segments[1] = new Arc2F(center, _segments[1].P1, center + v2.Point, dir);
+            if (v2_det > 0)
+                _segments[1] = new Arc2F(center, _segments[1].P1, center + v2.Point, dir);
         }
 
 
