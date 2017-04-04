@@ -111,7 +111,7 @@ namespace Matmill
             max = new Point2F(Math.Max(seg0_max.X, seg1_max.X), Math.Max(seg0_max.Y, seg1_max.Y));
         }
 
-        public void Refine(List<Slice> colliding_slices, double end_clearance, double tool_r)
+        public void Refine_separate(List<Slice> trimming_slices, double end_clearance, double tool_r)
         {
             double clearance = end_clearance;
 
@@ -128,7 +128,7 @@ namespace Matmill
             if (this.Radius <= r_min)
                 return;
 
-            if (colliding_slices.Contains(this))
+            if (trimming_slices.Contains(this))
                 throw new Exception("attempt to collide slice with itself");
 
             Line2F c1_insects = _segments[0].CircleIntersect(new Circle2F(this.Start, clearance));
@@ -139,7 +139,7 @@ namespace Matmill
             Arc2F seg0 = _segments[0];
 
             // trim seg0
-            foreach (Slice s in colliding_slices)
+            foreach (Slice s in trimming_slices)
             {
                 if (s == _parent)
                     continue;  // no reason to process it
@@ -173,7 +173,7 @@ namespace Matmill
             Arc2F seg1 = _segments[1];
 
             // trim seg1
-            foreach (Slice s in colliding_slices)
+            foreach (Slice s in trimming_slices)
             {
                 if (s == _parent)
                     continue;  // no reason to process it
@@ -227,27 +227,32 @@ namespace Matmill
         }
 
 
-        public void Refine_old(List<Slice> colliding_slices, double end_clearance, double tool_r)
+        public void Refine(List<Slice> trimming_slices, double end_clearance, double tool_r)
         {
-            double clearance = end_clearance;
+            if (_segments[0].P2.DistanceTo(_segments[1].P1) != 0.0)
+                throw new Exception("attempt to refine already refined slice");
 
+            if (this.Radius == 0)
+                throw new Exception("attempt to refine zero radius slice");
+
+            double clearance = end_clearance;
             // check if arc is small. refining is worthless in this case
             // criterion for smallness: there should be at least 4 segments with chord = clearance, plus
             // one segment to space ends far enough. A pentagon with a 5 segments with edge length = clearance
             // will define the min radius of circumscribed circle. clearance = 2 * R * sin (Pi / 5),
             // R = clearance / 2 / sin (Pi / 5)
 
-            if (_segments[0].P2.DistanceTo(_segments[1].P1) != 0.0)
-                throw new Exception("attempt to refine already refined slice");
+            if (_segments[0].GetPerimeter() + _segments[1].GetPerimeter() < clearance * 5)
+                return;
 
             double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
             if (this.Radius <= r_min)
                 return;
 
-            if (colliding_slices.Contains(this))
-                throw new Exception("attempt to collide slice with itself");
+            if (trimming_slices.Contains(this))
+                throw new Exception("attempt to trim slice by itself");
 
-            // now apply the colliding slices. to keep things simple and robust, we apply just one slice - the one who trims
+            // now apply the trimming slices. to keep things simple and robust, we apply just one slice - the one who trims
             // us most (removed length of arc is greatest).
 
             // end clearance adjustment:
@@ -255,96 +260,100 @@ namespace Matmill
             // arc will always have original ends, trimming will happen in the middle only.
             // to prevent the tool from milling extra small end segments and minimize numeric errors at small tangents,
             // original ends would always stick at least for a clearance (chordal) length.
-            // i.e. if the point of intersection of arc and colliding circle is closer than clearance to the end,
-            // it is moved to clearance distance.
+            //
+            // we achieve it by creating the smalled artifical arc (safe arc) with clearances applied.
+            // as a bonus, this arc is guaranteed to be < 360 degress and well defined
 
-            // there is a two cases of intersecting circles: with single intersection and with a double intersection.
-            // double intersections splits arc to three pieces (length of the middle part is the measure),
-            // single intesections splits arc in two (the part inside the circle is removed, its length is the measure).
-            // in both cases the intersection points are subject to "end clearance adjustment".
-            // single intersections are transformed to the double intersections, second point being one of the end clearances.
+            // there are a three cases of intersecting safe arc and trimming ball:
+            // 1) no intersections: arc is either inside the ball (then its a maximum trim), or outside (ignored)
+            // 2) single intersection. ball is breaking arc in two. remove the side which inside the ball
+            // 3) double intersection. removed segment may be inside the ball (trim it) or outside (ignore)
 
-            // TODO: calculate clearance point the right way, with math :-)
+
             Line2F c1_insects = _segments[0].CircleIntersect(new Circle2F(this.Start, clearance));
             Line2F c2_insects = _segments[1].CircleIntersect(new Circle2F(this.End, clearance));
             Point2F c1 = c1_insects.p1.IsUndefined ? c1_insects.p2 : c1_insects.p1;
             Point2F c2 = c2_insects.p1.IsUndefined ? c2_insects.p2 : c2_insects.p1;
-
             Vector2d v_c1 = new Vector2d(this.Center, c1);
             Vector2d v_c2 = new Vector2d(this.Center, c2);
+            Arc2F safe_arc = new Arc2F(this.Center, c1, c2, this.Dir);
+
+            Vector2d v_p1 = new Vector2d(this.Center, this.Start);
 
             Line2F max_secant = new Line2F();
             double max_sweep = 0;
 
-            Arc2F safe_arc = new Arc2F(this.Center, c1, c2, this.Dir);
-
-            foreach (Slice s in colliding_slices)
+            foreach (Slice s in trimming_slices)
             {
                 if (s == _parent)
                     continue;  // no reason to process it
 
-                Line2F secant = this.Ball.CircleIntersect(s.Ball);
+                Line2F secant = safe_arc.CircleIntersect(s.Ball);
 
-                // only double intersections are of interest
+                // not intersections. check if arc is completely inside the trimming circle
+                if (secant.p1.IsUndefined && secant.p2.IsUndefined)
+                {
+                    if (safe_arc.Midpoint.DistanceTo(s.Center) > s.Radius)
+                        continue;
+
+                    max_secant = new Line2F(c1, c2);
+                    max_sweep = angle_between_vectors(v_c1, v_c2, this.Dir);  // any value will do, in fact
+                    break;
+                }
+
                 if (secant.p1.IsUndefined || secant.p2.IsUndefined)
+                {
+                    // single intersection. find which side of safe arc is inside the trimming circle
+                    secant = new Line2F(c1.DistanceTo(s.Center) < c2.DistanceTo(s.Center) ? c1 : c2, secant.p1.IsUndefined ? secant.p2 : secant.p1);
+                }
+                else
+                {
+                    // double intersection, ok
+                }
+
+                // ignore the segments too short
+                if (secant.p1.DistanceTo(secant.p2) < clearance * 2)
                     continue;
 
+
+                // sort insects by sweep
+                // NOTE: to keep the good margin for numerical errors, we're sorting from original start point, not safe_arc start
                 Vector2d v_ins1 = new Vector2d(this.Center, secant.p1);
                 Vector2d v_ins2 = new Vector2d(this.Center, secant.p2);
 
-                if (angle_between_vectors(v_c1, v_ins1, this.Dir) > angle_between_vectors(v_c1, v_c2, this.Dir))
+                double sweep;
+
+                if (angle_between_vectors(v_p1, v_ins1, this.Dir) < angle_between_vectors(v_p1, v_ins2, this.Dir))
                 {
-                    secant.p1 = c1.DistanceTo(s.Center) < c2.DistanceTo(s.Center) ? c1 : c2;
-                    v_ins1 = new Vector2d(this.Center, secant.p1);
+                    sweep = angle_between_vectors(v_ins1, v_ins2, this.Dir);
                 }
-
-                if (angle_between_vectors(v_c1, v_ins2, this.Dir) > angle_between_vectors(v_c1, v_c2, this.Dir))
+                else
                 {
-                    secant.p2 = c1.DistanceTo(s.Center) < c2.DistanceTo(s.Center) ? c1 : c2;
-                    v_ins2 = new Vector2d(this.Center, secant.p2);
-                }
-
-                if (secant.p1.DistanceTo(secant.p2) < clearance * 2) // segment is too short, ignore it
-                    continue;
-
-                double sweep = angle_between_vectors(v_ins1, v_ins2, this.Dir);
-
-                // sort insects by sweep (already sorted for single, may be unsorted for the double)
-                // NOTE: to keep the good margin for numerical errors, we're sorting from original start point, not safe_arc start
-                Vector2d v_p1 = new Vector2d(this.Center, this.Start);
-                if (angle_between_vectors(v_p1, v_ins1, this.Dir) > angle_between_vectors(v_p1, v_ins2, this.Dir))
-                {
+                    sweep = angle_between_vectors(v_ins2, v_ins1, this.Dir);
                     secant = new Line2F(secant.p2, secant.p1);
-                    sweep = 2.0 * Math.PI - sweep;
                 }
 
                 if (sweep > max_sweep)
                 {
                     // ok, a last check - removed arc midpoint should be inside the colliding circle
-                    Arc2F check_arc = new Arc2F(this.Center, secant.p1, secant.p2, this.Dir);
-                    if (check_arc.Midpoint.DistanceTo(s.Center) < s.Radius)
-                    {
-                        max_sweep = sweep;
-                        max_secant = secant;
-                    }
-                    else
-                    {
-                        ;
-                    }
+                    Arc2F removed_sector = new Arc2F(this.Center, secant.p1, secant.p2, this.Dir);
+                    if (removed_sector.Midpoint.DistanceTo(s.Center) > s.Radius)
+                        continue;
+
+                    max_sweep = sweep;
+                    max_secant = secant;
                 }
             }
 
             if (max_sweep == 0)
                 return;
 
-            Arc2F head = new Arc2F(this.Center, this.Start, max_secant.p1, this.Dir);
-            Arc2F tail = new Arc2F(this.Center, max_secant.p2, this.End, this.Dir);
+            Arc2F seg0 = new Arc2F(this.Center, this.Start, max_secant.p1, this.Dir);
+            Arc2F seg1 = new Arc2F(this.Center, max_secant.p2, this.End, this.Dir);
 
             _segments.Clear();
-            _segments.Add(head);
-            _segments.Add(tail);
-
-            return;
+            _segments.Add(seg0);
+            _segments.Add(seg1);
 
             // recalculate max TED accounting for the new endpoints.
             // this TED is 'virtual' and averaged with previous max_ted to make arcs look more pretty
@@ -355,12 +364,13 @@ namespace Matmill
             Vector2d v_removed_p1 = new Vector2d(_parent.Center, max_secant.p1);
             Vector2d v_removed_p2 = new Vector2d(_parent.Center, max_secant.p2);
 
-            if (v_move.Det(v_removed_p1) * v_move.Det(v_removed_p2) > 0) return;
+            if (v_move.Det(v_removed_p1) * v_move.Det(v_removed_p2) > 0)
+                return;
 
-            double ted_head_end = calc_ted(max_secant.p1, tool_r);
-            double ted_tail_start = calc_ted(max_secant.p2, tool_r);
+            double seg0_end_ted = calc_ted(max_secant.p1, tool_r);
+            double seg1_start_ted = calc_ted(max_secant.p2, tool_r);
 
-            double ted = Math.Max(ted_head_end, ted_tail_start);
+            double ted = Math.Max(seg0_end_ted, seg1_start_ted);
 
             if (ted <= 0)
             {
