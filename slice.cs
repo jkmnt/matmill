@@ -54,10 +54,7 @@ namespace Matmill
             Line2F insects = cut_circle.CircleIntersect(parent_wall);
 
             if (insects.p1.IsUndefined || insects.p2.IsUndefined)
-            {
-                Logger.err("no wall intersections #0");
-                return 0;
-            }
+                return -1;
 
             // we're interested in tool head point, so choose more advanced point in mill direction
 
@@ -83,10 +80,7 @@ namespace Matmill
             Line2F wall_insects = parent_wall.CircleIntersect(this_wall);
 
             if (wall_insects.p1.IsUndefined || wall_insects.p2.IsUndefined)
-            {
-                Logger.err("no wall intersections for entry ted #1");
-                return 0;
-            }
+                return -1;
 
             Vector2d v1 = new Vector2d(_parent.Center, wall_insects.p1);
             Vector2d v_move = new Vector2d(_parent.Center, this.Center);
@@ -94,6 +88,7 @@ namespace Matmill
             Vector2d v_tail = new Vector2d(this.Center, cut_tail);
 
             Point2F entry_tool_center = this.Center + (v_tail.Unit() * this.Radius).Point;
+
             return calc_ted(entry_tool_center, tool_r);
         }
 
@@ -111,123 +106,8 @@ namespace Matmill
             max = new Point2F(Math.Max(seg0_max.X, seg1_max.X), Math.Max(seg0_max.Y, seg1_max.Y));
         }
 
-        public void Refine_separate(List<Slice> trimming_slices, double end_clearance, double tool_r)
-        {
-            double clearance = end_clearance;
 
-            // check if arc is small. refining is worthless in this case
-            // criterion for smallness: there should be at least 4 segments with chord = clearance, plus
-            // one segment to space ends far enough. A pentagon with a 5 segments with edge length = clearance
-            // will define the min radius of circumscribed circle. clearance = 2 * R * sin (Pi / 5),
-            // R = clearance / 2 / sin (Pi / 5)
-
-            if (_segments[0].P2.DistanceTo(_segments[1].P1) != 0.0)
-                throw new Exception("attempt to refine already refined slice");
-
-            double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
-            if (this.Radius <= r_min)
-                return;
-
-            if (trimming_slices.Contains(this))
-                throw new Exception("attempt to collide slice with itself");
-
-            Line2F c1_insects = _segments[0].CircleIntersect(new Circle2F(this.Start, clearance));
-            Line2F c2_insects = _segments[1].CircleIntersect(new Circle2F(this.End, clearance));
-            Point2F c1 = c1_insects.p1.IsUndefined ? c1_insects.p2 : c1_insects.p1;
-            Point2F c2 = c2_insects.p1.IsUndefined ? c2_insects.p2 : c2_insects.p1;
-
-            Arc2F seg0 = _segments[0];
-
-            // trim seg0
-            foreach (Slice s in trimming_slices)
-            {
-                if (s == _parent)
-                    continue;  // no reason to process it
-
-                Line2F secant = seg0.CircleIntersect(s.Ball);
-
-                // just for now - ignore the case of fully inside
-                if (secant.p1.IsUndefined && secant.p2.IsUndefined)
-                    continue;
-
-                // two intersections - ignore
-                if (! (secant.p1.IsUndefined || secant.p2.IsUndefined))
-                    continue;
-
-                // single intersection
-                Point2F splitpt = secant.p1.IsUndefined ? secant.p2 : secant.p1;
-                if (seg0.P1.DistanceTo(s.Center) < seg0.P2.DistanceTo(s.Center))
-                {
-//                  if (splitpt.DistanceTo(seg0.P1) < clearance)
-                        continue;  // nothing to remove
-                }
-                else
-                {
-                    if (splitpt.DistanceTo(seg0.P1) < clearance)
-                        splitpt = c1;
-                }
-
-                seg0 = new Arc2F(this.Center, this.Start, splitpt, this.Dir);
-            }
-
-            Arc2F seg1 = _segments[1];
-
-            // trim seg1
-            foreach (Slice s in trimming_slices)
-            {
-                if (s == _parent)
-                    continue;  // no reason to process it
-
-                Line2F secant = seg1.CircleIntersect(s.Ball);
-
-                // just for now - ignore the case of fully inside
-                if (secant.p1.IsUndefined && secant.p2.IsUndefined)
-                    continue;
-
-                // two intersections - ignore
-                if (! (secant.p1.IsUndefined || secant.p2.IsUndefined))
-                    continue;
-
-                // single intersection
-                Point2F splitpt = secant.p1.IsUndefined ? secant.p2 : secant.p1;
-                if (seg1.P2.DistanceTo(s.Center) < seg1.P1.DistanceTo(s.Center))
-                {
-//                  if (splitpt.DistanceTo(seg1.P2) < clearance)
-                    continue;  // nothing to remove
-                }
-                else
-                {
-                    if (splitpt.DistanceTo(seg1.P2) < clearance)
-                        splitpt = c2;
-                }
-
-                seg1 = new Arc2F(this.Center, splitpt, this.End, this.Dir);
-            }
-
-            if (seg0.P2.DistanceTo(seg1.P1) < clearance * 2) // segment is too short, ignore it
-                return;
-
-            _segments.Clear();
-            _segments.Add(seg0);
-            _segments.Add(seg1);
-
-            double ted_head_end = calc_ted(seg0.P2, tool_r);
-            double ted_tail_start = calc_ted(seg1.P1, tool_r);
-
-            double ted = Math.Max(ted_head_end, ted_tail_start);
-
-            if (ted <= 0)
-            {
-                Logger.err("max TED vanished after refining the slice !");
-                return;
-            }
-
-            ted = (ted + _mid_ted) / 2;
-            _max_ted = Math.Max(ted, _entry_ted);
-        }
-
-
-        public void Refine(List<Slice> trimming_slices, double end_clearance, double tool_r)
+        public void Refine(List<Slice> trimming_slices, double clearance, double tool_r)
         {
             if (_segments[0].P2.DistanceTo(_segments[1].P1) != 0.0)
                 throw new Exception("attempt to refine already refined slice");
@@ -235,22 +115,23 @@ namespace Matmill
             if (this.Radius == 0)
                 throw new Exception("attempt to refine zero radius slice");
 
-            double clearance = end_clearance;
+            if (trimming_slices.Contains(this))
+                throw new Exception("attempt to trim slice by itself");
+
+            if (trimming_slices.Count == 0)
+                return;
+
             // check if arc is small. refining is worthless in this case
             // criterion for smallness: there should be at least 4 segments with chord = clearance, plus
             // one segment to space ends far enough. A pentagon with a 5 segments with edge length = clearance
             // will define the min radius of circumscribed circle. clearance = 2 * R * sin (Pi / 5),
             // R = clearance / 2 / sin (Pi / 5)
-
-            if (_segments[0].GetPerimeter() + _segments[1].GetPerimeter() < clearance * 5)
-                return;
+            // arc perimeter should be > perimeter of such circle
 
             double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
-            if (this.Radius <= r_min)
-                return;
 
-            if (trimming_slices.Contains(this))
-                throw new Exception("attempt to trim slice by itself");
+            if (_segments[0].GetPerimeter() < r_min * Math.PI)  // two slices are the same before refinement, so x2 is vanished from both sides
+                return;
 
             // now apply the trimming slices. to keep things simple and robust, we apply just one slice - the one who trims
             // us most (removed length of arc is greatest).
@@ -385,30 +266,46 @@ namespace Matmill
         public void Append_leadin_and_leadout(double leadin_angle, double leadout_angle)
         {
             RotationDirection dir = Dir;
-            Point2F start = Start;
-            Point2F end = End;
+            Point2F start = _segments[0].P1;
+            Point2F gap_start = _segments[0].P2;
+            Point2F gap_end = _segments[1].P1;
+            Point2F end = _segments[1].P2;
             Point2F center = Center;
 
             Vector2d v_move = new Vector2d(_parent.Center, center);
 
-            Vector2d old_v1 = new Vector2d(center, start);
-            Vector2d old_v2 = new Vector2d(center, end);
+            Vector2d v_new_start = new Vector2d(center, start).Rotated(-(int)dir * leadin_angle);
+            Vector2d v_new_end = new Vector2d(center, end).Rotated((int)dir * leadout_angle);
 
-            Vector2d v1 = old_v1.Rotated(-(int)dir * leadin_angle);
-            Vector2d v2 = old_v2.Rotated((int)dir * leadout_angle);
 
             // do not allow segments to overlap:
             // get sides of v1, v2 vectors relative to the midpoint vector of slice, account for rotation direction too.
             // if no 180 degree segment overflow occured, v1_det should be negative while v2_should should pe positive
             // skip the exact 180 degrees too
-            double v1_det = v_move.Det(v1) * (int)dir;
-            double v2_det = v_move.Det(v2) * (int)dir;
+            double v_new_start_det = v_move.Det(v_new_start) * (int)dir;
+            double v_new_end_det = v_move.Det(v_new_end) * (int)dir;
 
-            if (v1_det < 0)
-                _segments[0] = new Arc2F(center, center + v1.Point, _segments[0].P2, dir);
+            if (v_new_start_det < 0 && v_new_end_det > 0)
+            {
+                start = center + v_new_start.Point;
+                end = center + v_new_end.Point;
+            }
 
-            if (v2_det > 0)
-                _segments[1] = new Arc2F(center, _segments[1].P1, center + v2.Point, dir);
+            // if there is a nonzero gap between segments (and space allows), apply leadin/leadout to gap too
+            if (gap_start.DistanceTo(gap_end) != 0)   // exact compare is ok, points are created this way
+            {
+                Vector2d v_gap_start = new Vector2d(center, gap_start);
+                Vector2d v_gap_end = new Vector2d(center, gap_end);
+
+                if (angle_between_vectors(v_gap_start, v_gap_end, dir) > leadin_angle + leadout_angle)
+                {
+                    gap_start = center + v_gap_start.Rotated((int)dir * leadout_angle).Point;
+                    gap_end = center + v_gap_end.Rotated(-(int)dir * leadin_angle).Point;
+                }
+            }
+
+            _segments[0] = new Arc2F(center, start, gap_start, dir);
+            _segments[1] = new Arc2F(center, gap_end, end, dir);
         }
 
 
@@ -544,6 +441,9 @@ namespace Matmill
             }
 
             _entry_ted = calc_entry_ted(tool_r);
+
+            if (_entry_ted < 0)
+                Logger.log("can't determine entry ted");
 
             _max_ted = Math.Max(_mid_ted, _entry_ted);
         }
