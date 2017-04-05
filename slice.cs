@@ -121,6 +121,9 @@ namespace Matmill
             if (trimming_slices.Count == 0)
                 return;
 
+            Vector2d v_start = new Vector2d(this.Center, this.Start);
+            Vector2d v_mid = new Vector2d(this.Center, _segments[0].P2);
+
             // check if arc is small. refining is worthless in this case
             // criterion for smallness: there should be at least 4 segments with chord = clearance, plus
             // one segment to space ends far enough. A pentagon with a 5 segments with edge length = clearance
@@ -129,8 +132,9 @@ namespace Matmill
             // arc perimeter should be > perimeter of such circle
 
             double r_min = clearance / 2 / Math.Sin(Math.PI / 5.0);
+            double seg_perimeter = angle_between_vectors(v_start, v_mid, this.Dir) * this.Radius;
 
-            if (_segments[0].GetPerimeter() < r_min * Math.PI)  // two slices are the same before refinement, so x2 is vanished from both sides
+            if (seg_perimeter < r_min * Math.PI)  // two segments of slice are the same before refinement, so x2 is vanished from both sides
                 return;
 
             // now apply the trimming slices. to keep things simple and robust, we apply just one slice - the one who trims
@@ -158,8 +162,6 @@ namespace Matmill
             Vector2d v_c1 = new Vector2d(this.Center, c1);
             Vector2d v_c2 = new Vector2d(this.Center, c2);
             Arc2F safe_arc = new Arc2F(this.Center, c1, c2, this.Dir);
-
-            Vector2d v_p1 = new Vector2d(this.Center, this.Start);
 
             Line2F max_secant = new Line2F();
             double max_sweep = 0;
@@ -204,7 +206,7 @@ namespace Matmill
 
                 double sweep;
 
-                if (angle_between_vectors(v_p1, v_ins1, this.Dir) < angle_between_vectors(v_p1, v_ins2, this.Dir))
+                if (angle_between_vectors(v_start, v_ins1, this.Dir) < angle_between_vectors(v_start, v_ins2, this.Dir))
                 {
                     sweep = angle_between_vectors(v_ins1, v_ins2, this.Dir);
                 }
@@ -241,11 +243,10 @@ namespace Matmill
 
             // if ends of removed segment are at the same side of direction vector,
             // midpoint is still present, _max_ted is valid and is maximum for sure
-            Vector2d v_move = new Vector2d(_parent.Center, this.Center);
             Vector2d v_removed_p1 = new Vector2d(_parent.Center, max_secant.p1);
             Vector2d v_removed_p2 = new Vector2d(_parent.Center, max_secant.p2);
 
-            if (v_move.Det(v_removed_p1) * v_move.Det(v_removed_p2) > 0)
+            if (v_mid.Det(v_removed_p1) * v_mid.Det(v_removed_p2) > 0)
                 return;
 
             double seg0_end_ted = calc_ted(max_secant.p1, tool_r);
