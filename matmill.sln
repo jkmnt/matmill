@@ -7,14 +7,11 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "matmill", "matmill.csproj",
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		cb098-debug|x86 = cb098-debug|x86
 		cb10-debug|x86 = cb10-debug|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{26D59F35-CF38-4714-8036-5038537EA2BA}.cb098-debug|x86.ActiveCfg = cb098-debug|x86
-		{26D59F35-CF38-4714-8036-5038537EA2BA}.cb098-debug|x86.Build.0 = cb098-debug|x86
-		{26D59F35-CF38-4714-8036-5038537EA2BA}.cb10-debug|x86.ActiveCfg = cb10-debug|x86
-		{26D59F35-CF38-4714-8036-5038537EA2BA}.cb10-debug|x86.Build.0 = cb10-debug|x86
+		{26D59F35-CF38-4714-8036-5038537EA2BA}.cb10-debug|x86.ActiveCfg = Debug|Any CPU
+		{26D59F35-CF38-4714-8036-5038537EA2BA}.cb10-debug|x86.Build.0 = Debug|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

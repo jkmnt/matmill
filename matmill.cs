@@ -23,6 +23,8 @@ namespace Matmill
         private double _slice_leadin_angle = 3 * Math.PI / 180;
         private double _slice_leadout_angle = 0.5 * Math.PI / 180;
 
+        private bool EMIT_DEBUG_MEDIAL = true;
+
         public double Tool_d                                      { set { _tool_r = value / 2.0;}}
         public double General_tolerance                           { set { _general_tolerance = value; } }
         public double Margin                                      { set { _margin = value; } }
@@ -91,7 +93,15 @@ namespace Matmill
             Slice_sequence sequence = slicer.Run(tree, _tool_r, _max_ted, _min_ted, _dir);
 
             Logger.log("generating path");
-            return generate_path(sequence);
+            Sliced_path path = generate_path(sequence);
+
+            if (EMIT_DEBUG_MEDIAL)
+            {
+                foreach (Branch b in tree.Df_traverse())
+                    path.Add(new Sliced_path_item(Sliced_path_item_type.DEBUG_MEDIAL_AXIS, b.To_polyline()));
+            }
+
+            return path;
         }
 
         public List<Polyline> Get_debug_medial_axis()

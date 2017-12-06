@@ -2,29 +2,14 @@
 <Project ToolsVersion="14.0" DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
-    <Configuration Condition=" '$(Configuration)' == '' ">cb098-debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{26D59F35-CF38-4714-8036-5038537EA2BA}</ProjectGuid>
     <OutputType>Library</OutputType>
     <AppDesignerFolder>Properties</AppDesignerFolder>
     <RootNamespace>Trochomops</RootNamespace>
-    <AssemblyName>trochomops</AssemblyName>
-    <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
+    <AssemblyName>trocho</AssemblyName>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'cb098-debug|x86'">
-    <DebugSymbols>true</DebugSymbols>
-    <OutputPath>bin\cb098-debug\</OutputPath>
-    <cbpath>d:\winp\app\cambam</cbpath>
-    <DefineConstants>DEBUG;TRACE</DefineConstants>
-    <DebugType>full</DebugType>
-    <PlatformTarget>x86</PlatformTarget>
-    <TargetFrameworkVersion>v3.5</TargetFrameworkVersion>
-    <ErrorReport>prompt</ErrorReport>
-    <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
-  </PropertyGroup>
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'cb10-debug|x86'">
     <DebugSymbols>true</DebugSymbols>
     <OutputPath>bin\cb10-debug\</OutputPath>
     <cbpath>d:\winp\app\cambam10</cbpath>
@@ -37,15 +22,15 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="CamBam">
-      <HintPath>$(cbpath)\CamBam.exe</HintPath>
+      <HintPath>d:\winp\app\cambam10\CamBam.exe</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="CamBam.CAD">
-      <HintPath>$(cbpath)\CamBam.CAD.dll</HintPath>
+      <HintPath>d:\winp\app\cambam10\CamBam.CAD.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="CamBam.Geom">
-      <HintPath>$(cbpath)\CamBam.Geom.dll</HintPath>
+      <HintPath>d:\winp\app\cambam10\CamBam.Geom.dll</HintPath>
       <Private>False</Private>
     </Reference>
     <Reference Include="System" />
@@ -101,6 +86,9 @@
     <None Include="Resources\cam_trochoprof1.bmp" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <PropertyGroup>
+    <PostBuildEvent>$(ProjectDir)\tools\ILMerge.exe /lib:d:\winp\app\cambam10 /target:library /out:$(TargetDir)\trochomops.dll $(TargetDir)\trocho.dll $(ProjectDir)\lib\Triangle.dll</PostBuildEvent>
+  </PropertyGroup>
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it.
        Other similar extension points exist, see Microsoft.Common.targets.
   <Target Name="BeforeBuild">
