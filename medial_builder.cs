@@ -5,6 +5,8 @@ using CamBam.Geom;
 
 using Voronoi2;
 
+using TriangleNet;
+
 namespace Matmill
 {
     interface Medial_branch
@@ -91,6 +93,40 @@ namespace Matmill
                 Line2F seg = new Line2F(e.x1, e.y1, e.x2, e.y2);
                 if (seg.Length() < double.Epsilon) continue;    // extra small segment, discard
                 if (! topo.Is_line_inside_region(seg, ANALIZE_INNER_INTERSECTIONS, general_tolerance)) continue;
+                inner_segments.Add(seg);
+            }
+
+            return inner_segments;
+        }
+
+        private static List<Line2F> get_medial_axis_segments_trianglenet(Topographer topo, List<Point2F>samples, double general_tolerance)
+        {
+            TriangleNet.Meshing.GenericMesher mesher = new TriangleNet.Meshing.GenericMesher();
+            List<TriangleNet.Geometry.Vertex> vertices = new List<TriangleNet.Geometry.Vertex>();
+            foreach (Point2F pt in samples)
+            {
+                vertices.Add(new TriangleNet.Geometry.Vertex(pt.X, pt.Y));
+            }
+
+            TriangleNet.Mesh mesh = (TriangleNet.Mesh) mesher.Triangulate(vertices);
+
+            TriangleNet.Voronoi.StandardVoronoi voronoi = new TriangleNet.Voronoi.StandardVoronoi(mesh);
+
+            Logger.log("triangle net partitioning completed. got {0} vertices", voronoi.Vertices.Count);
+
+            List<Line2F> inner_segments = new List<Line2F>();
+
+            foreach (TriangleNet.Geometry.Edge e in voronoi.Edges)
+            {
+                Line2F seg = new Line2F(voronoi.Vertices[e.P0].X,
+                                        voronoi.Vertices[e.P0].Y,
+                                        voronoi.Vertices[e.P1].X,
+                                        voronoi.Vertices[e.P1].Y);
+
+                if (seg.Length() < double.Epsilon)
+                    continue;    // extra small segment, discard
+                if (!topo.Is_line_inside_region(seg, ANALIZE_INNER_INTERSECTIONS, general_tolerance))
+                    continue;
                 inner_segments.Add(seg);
             }
 
@@ -267,7 +303,8 @@ namespace Matmill
             Point2F center = Point2F.Undefined;
             if (! recognize_perfect_circle(samples, general_tolerance, ref center))
             {
-                medial_axis_segments = get_medial_axis_segments(topo, samples, general_tolerance);
+                //medial_axis_segments = get_medial_axis_segments(topo, samples, general_tolerance);
+                medial_axis_segments = get_medial_axis_segments_trianglenet(topo, samples, general_tolerance);
             }
             else
             {

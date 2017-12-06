@@ -69,6 +69,19 @@ namespace Matmill
             }
         }
 
+        public bool Is_point_inside_region(Point2F pt, double tolerance)
+        {
+            if (!_outline.PointInPolyline(pt, tolerance))
+                return false;
+
+            foreach (Polyline island in _islands)
+            {
+                if (island.PointInPolyline(pt, tolerance))
+                    return false;  // p1 is inside hole
+            }
+            return true;        
+        }
+
         public bool Is_line_inside_region(Line2F line, bool should_analize_inner_intersections, double tolerance)
         {
             if (!_outline.PointInPolyline(line.p1, tolerance))
