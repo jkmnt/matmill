@@ -68,8 +68,6 @@
     <Compile Include="spiral.cs" />
     <Compile Include="topo.cs" />
     <Compile Include="tree4.cs" />
-    <Compile Include="Voronoi.cs" />
-    <Compile Include="VoronoiElements.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="resources.resx">

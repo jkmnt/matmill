@@ -23,7 +23,7 @@ namespace Matmill
         private double _slice_leadin_angle = 3 * Math.PI / 180;
         private double _slice_leadout_angle = 0.5 * Math.PI / 180;
 
-        private bool EMIT_DEBUG_MEDIAL = true;
+        private bool EMIT_DEBUG_MEDIAL = false;
 
         public double Tool_d                                      { set { _tool_r = value / 2.0;}}
         public double General_tolerance                           { set { _general_tolerance = value; } }

@@ -197,7 +197,7 @@ namespace Trochomops
             XmlIgnore,
             Category("Misc"),
             DisplayName("Plugin Version"),
-            Description("https://github.com/jkmnt/matmill\njkmnt at git@firewood.fastmail.com")
+            Description("https://github.com/jkmnt/matmill\njkmnt at git@firewood.fastmail.com\n\ntriangulation code: triangle.net (https://triangle.codeplex.com)")
         ]
         public string Version
         {
