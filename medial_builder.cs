@@ -25,21 +25,19 @@ namespace Matmill
         private const bool ANALIZE_INNER_INTERSECTIONS = false;
 
         private static List<Line2F> get_medial_axis_segments(Topographer topo, List<Point2F>samples, double general_tolerance)
-        {
+        {                        
             TriangleNet.Meshing.GenericMesher mesher = new TriangleNet.Meshing.GenericMesher();
             List<TriangleNet.Geometry.Vertex> vertices = new List<TriangleNet.Geometry.Vertex>();
-            foreach (Point2F pt in samples)
-            {
+            foreach (Point2F pt in samples)            
                 vertices.Add(new TriangleNet.Geometry.Vertex(pt.X, pt.Y));
-            }
 
-            TriangleNet.Mesh mesh = (TriangleNet.Mesh) mesher.Triangulate(vertices);
+            Mesh mesh = (Mesh)mesher.Triangulate(vertices);            
 
-            TriangleNet.Voronoi.StandardVoronoi voronoi = new TriangleNet.Voronoi.StandardVoronoi(mesh);
+            TriangleNet.Voronoi.StandardVoronoi voronoi = new TriangleNet.Voronoi.StandardVoronoi(mesh);            
 
             Logger.log("triangle.net partitioning completed. got {0} vertices", voronoi.Vertices.Count);
 
-            List<Line2F> inner_segments = new List<Line2F>();
+            List<Line2F> inner_segments = new List<Line2F>();            
 
             foreach (TriangleNet.Geometry.Edge e in voronoi.Edges)
             {
@@ -48,14 +46,14 @@ namespace Matmill
                                         voronoi.Vertices[e.P1].X,
                                         voronoi.Vertices[e.P1].Y);
 
-                if (seg.Length() < double.Epsilon)                                    
+                if (seg.Length() < double.Epsilon)
                     continue;    // extra small segment, discard                
-                if (!topo.Is_line_inside_region(seg, ANALIZE_INNER_INTERSECTIONS, general_tolerance))                                    
-                    continue;                
+                if (!topo.Is_line_inside_region(seg, ANALIZE_INNER_INTERSECTIONS, general_tolerance))
+                    continue;
                 inner_segments.Add(seg);
             }
 
-            return inner_segments;
+            return inner_segments;            
         }
 
         // take 3 well-spaced samples, find the center, check for all points to lay on a circle
@@ -227,7 +225,7 @@ namespace Matmill
 
             Point2F center = Point2F.Undefined;
             if (! recognize_perfect_circle(samples, general_tolerance, ref center))
-            {
+            {                
                 medial_axis_segments = get_medial_axis_segments(topo, samples, general_tolerance);                
             }
             else
