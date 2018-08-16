@@ -60,7 +60,6 @@ namespace Trochomops
         protected CBValue<double> _stepover;
         protected CBValue<double> _target_depth;
         protected CBValue<LeadMoveInfo> _leadin;
-        protected CBValue<Matrix4x4F> _transform = default(CBValue<Matrix4x4F>);
         protected double _chord_feedrate = 0;
         protected double _spiral_feedrate = 0;
 
@@ -73,13 +72,6 @@ namespace Trochomops
         public new CBValue<OptimisationModes> OptimisationMode
         {
             get { return base.OptimisationMode; }
-            set { }
-        }
-
-        [XmlIgnore, Browsable(false)]
-        public new CBValue<Matrix4x4F> Transform
-        {
-            get { return _transform; }
             set { }
         }
 
@@ -294,15 +286,14 @@ namespace Trochomops
 
         private Surface polyline_to_surface(Polyline p, double z)
         {
-            if (base.Transform.Cached != null && !Transform.Cached.IsIdentity())
-            {
-                p = (Polyline)p.Clone();
-                p.ApplyTransformation(Transform.Cached);
-            }
-
             PolylineToMesh mesh = new PolylineToMesh(p);
             Surface surface = mesh.ToWideLine(base.ToolDiameter.Cached);
-            surface.ApplyTransformation(Matrix4x4F.Translation(0.0, 0.0, z - 0.001));
+
+            Matrix4x4F mx = Matrix4x4F.Translation(0.0, 0.0, z - 0.001);
+            if (Transform.Cached != null)
+                mx *= Transform.Cached;
+
+            surface.ApplyTransformation(mx);
             return surface;
         }
 
@@ -469,6 +460,7 @@ namespace Trochomops
             _visual_cut_widths = calc_visual_cut_widths(_toolpaths, bottoms[0], bottoms[bottoms.Length - 1]);
             _visual_rapids = calc_visual_rapids(_toolpaths);
 
+            // XXX: transforms are not accounted for in stats calc or may print wrong results
             print_toolpath_stats(_toolpaths, _visual_rapids);
         }
 
@@ -529,15 +521,14 @@ namespace Trochomops
 
             foreach (Toolpath path in _toolpaths)
             {
+                Matrix4x4F mx = Matrix4x4F.Translation(0.0, 0.0, path.Bottom);
+                if (Transform.Cached != null)
+                    mx *= Transform.Cached;
+
                 foreach (Sliced_path_item p in path.Trajectory)
                 {
                     if (p.Item_type != Sliced_path_item_type.SLICE && p.Item_type != Sliced_path_item_type.SPIRAL)
                         continue;
-
-                    Matrix4x4F mx = new Matrix4x4F();
-                    mx.Translate(0.0, 0.0, path.Bottom);
-                    if (Transform.Cached != null)
-                        mx *= Transform.Cached;
 
                     Polyline poly = (Polyline) p.Clone();
                     poly.ApplyTransformation(mx);
@@ -548,17 +539,39 @@ namespace Trochomops
             return outlines;
         }
 
+        public override List<Surface> GetCutWidths()
+        {
+            return _visual_cut_widths;
+        }
+
         public override Point3F GetInitialCutPoint()
         {
-            if (_toolpaths.Count == 0) return Point3F.Undefined;
+            if (_toolpaths.Count == 0)
+                return Point3F.Undefined;
+
             Toolpath tp0 = _toolpaths[0];
+            Point3F pt;
             if (tp0.Leadin != null)
-                return tp0.Leadin.FirstPoint;
-            if (tp0.Trajectory.Count == 0) return Point3F.Undefined;
-            Sliced_path_item ppi = tp0.Trajectory[0];
-            if (ppi.Points.Count == 0) return Point3F.Undefined;
-            Point3F pt = ppi.Points[0].Point;
-            return new Point3F(pt.X, pt.Y, tp0.Bottom);
+            {
+                pt = tp0.Leadin.FirstPoint;
+            }
+            else
+            {
+                if (tp0.Trajectory.Count == 0)
+                    return Point3F.Undefined;
+
+                Sliced_path_item ppi = tp0.Trajectory[0];
+                if (ppi.Points.Count == 0)
+                    return Point3F.Undefined;
+
+                pt = ppi.Points[0].Point;
+                pt = new Point3F(pt.X, pt.Y, tp0.Bottom);
+            }
+
+            if (Transform.Cached != null)
+                pt *= Transform.Cached;
+
+            return pt;
         }
 
         private void paint_toolpath(ICADView iv, Display3D d3d, Color arccolor, Color linecolor, Toolpath path)
@@ -567,13 +580,12 @@ namespace Trochomops
 
             Color chord_color = Color.FromArgb(128, CamBamConfig.Defaults.ToolpathRapidColor);
 
+            Matrix4x4F mx = Matrix4x4F.Translation(0.0, 0.0, path.Bottom);
+            if (Transform.Cached != null)
+                mx *= Transform.Cached;
+
             if (leadin != null)
             {
-                Matrix4x4F mx = new Matrix4x4F();
-                mx.Translate(0.0, 0.0, path.Bottom);
-                if (Transform.Cached != null)
-                    mx *= Transform.Cached;
-
                 d3d.ModelTransform = mx;
                 d3d.LineWidth = 1F;
                 leadin.Paint(d3d, arccolor, linecolor);
@@ -598,11 +610,6 @@ namespace Trochomops
                     acol = Color.Cyan;
                     lcol = Color.Cyan;
                 }
-
-                Matrix4x4F mx = new Matrix4x4F();
-                mx.Translate(0.0, 0.0, path.Bottom);
-                if (Transform.Cached != null)
-                    mx *= Transform.Cached;
 
                 d3d.ModelTransform = mx;
                 d3d.LineWidth = 1F;
