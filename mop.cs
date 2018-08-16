@@ -326,6 +326,7 @@ namespace Trochomops
             List<Polyline> rapids = new List<Polyline>();
 
             double thres = base.GetDistanceThreshold();
+            Matrix4x4F mx = Transform.Cached != null ? Transform.Cached : Matrix4x4F.Identity;
 
             Point3F lastpt = Point3F.Undefined;
 
@@ -341,6 +342,8 @@ namespace Trochomops
                     else
                         to = (Point3F)path.Trajectory[0].FirstPoint;
 
+                    to = new Point3F(to.X, to.Y, to.Z + path.Bottom) * mx;
+
                     double dist = Point2F.Distance((Point2F)lastpt, (Point2F)to);
 
                     if (dist > thres + (double)CamBamConfig.Defaults.GeneralTolerance)
@@ -350,13 +353,13 @@ namespace Trochomops
                         p.Add(lastpt);
                         p.Add(new Point3F(lastpt.X, lastpt.Y, ClearancePlane.Cached));
                         p.Add(new Point3F(to.X, to.Y, ClearancePlane.Cached));
-                        p.Add(new Point3F(to.X, to.Y, path.Bottom + to.Z));
+                        p.Add(to);
                         rapids.Add(p);
                     }
                 }
 
                 lastpt = path.Trajectory[path.Trajectory.Count - 1].LastPoint;
-                lastpt = new Point3F(lastpt.X, lastpt.Y, path.Bottom);
+                lastpt = new Point3F(lastpt.X, lastpt.Y, path.Bottom) * mx;
             }
 
             return rapids;
@@ -370,15 +373,35 @@ namespace Trochomops
             double moves_len = 0;
             double rapids_len = 0;
 
+            Matrix4x4F mx = Transform.Cached != null ? Transform.Cached : Matrix4x4F.Identity;
+
             // collect cut lengths
             foreach (Toolpath path in toolpaths)
             {
                 if (path.Leadin != null)
-                    leadins_len += path.Leadin.GetPerimeter();
+                {
+                    Polyline p = (Polyline)path.Leadin;
+                    if (Transform.Cached != null)
+                    {
+                        p = (Polyline)p.Clone();
+                        p.ApplyTransformation(Transform.Cached);
+                    }
+
+                    leadins_len += p.GetPerimeter();
+                }
 
                 foreach (Sliced_path_item item in path.Trajectory)
                 {
-                    double len = item.GetPerimeter();
+                    Polyline p = (Polyline)item;
+
+                    if (Transform.Cached != null)
+                    {
+                        p = (Polyline)p.Clone();
+                        p.ApplyTransformation(Transform.Cached);
+                    }
+
+
+                    double len = p.GetPerimeter();
 
                     switch (item.Item_type)
                     {
@@ -459,9 +482,7 @@ namespace Trochomops
             _toolpaths = gen_ordered_toolpath(_trajectories, bottoms);
             _visual_cut_widths = calc_visual_cut_widths(_toolpaths, bottoms[0], bottoms[bottoms.Length - 1]);
             _visual_rapids = calc_visual_rapids(_toolpaths);
-
-            // XXX: transforms are not accounted for in stats calc or may print wrong results
-            print_toolpath_stats(_toolpaths, _visual_rapids);
+			print_toolpath_stats(_toolpaths, _visual_rapids);
         }
 
         private void emit_toolpath(MachineOpToGCode gcg, Toolpath path)
