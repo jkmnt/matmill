@@ -1,19 +1,23 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 14
-VisualStudioVersion = 14.0.25420.1
+# Visual Studio 15
+VisualStudioVersion = 15.0.28010.2016
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "matmill", "matmill.csproj", "{26D59F35-CF38-4714-8036-5038537EA2BA}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
-		cb10-debug|x86 = cb10-debug|x86
+		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{26D59F35-CF38-4714-8036-5038537EA2BA}.cb10-debug|x86.ActiveCfg = Debug|Any CPU
-		{26D59F35-CF38-4714-8036-5038537EA2BA}.cb10-debug|x86.Build.0 = Debug|Any CPU
+		{26D59F35-CF38-4714-8036-5038537EA2BA}.Debug|x64.ActiveCfg = Debug|x64
+		{26D59F35-CF38-4714-8036-5038537EA2BA}.Debug|x86.ActiveCfg = Debug|x86
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {7BB65E01-17E8-4875-A8E3-6C4F2680DAD3}
 	EndGlobalSection
 EndGlobal
